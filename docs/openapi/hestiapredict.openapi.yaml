@@ -1,0 +1,724 @@
+openapi: 3.1.0
+info:
+  title: HestiaPredict Laravel API - Kamoro Hotel
+  version: 1.0.0
+  description: >
+    API metier principale utilisee par l'application Flutter. Elle gere les
+    chambres, reservations, utilisateurs, disponibilites, audit financier et
+    orchestration du moteur IA FastAPI.
+servers:
+  - url: http://127.0.0.1:8000/api
+    description: Laravel local
+tags:
+  - name: Auth
+    description: Connexion staff.
+  - name: Availability
+    description: Disponibilite et chambres libres.
+  - name: Bookings
+    description: Creation et gestion des reservations.
+  - name: Dashboard
+    description: Predictions, yield et audit.
+  - name: Users
+    description: Gestion du staff.
+paths:
+  /login:
+    post:
+      tags: [Auth]
+      summary: Connecter un membre du staff
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Connexion reussie.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "401":
+          description: Identifiants incorrects.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /live-availability:
+    get:
+      tags: [Availability]
+      summary: Obtenir la disponibilite par categorie
+      operationId: getLiveAvailability
+      parameters:
+        - $ref: "#/components/parameters/DateQuery"
+      responses:
+        "200":
+          description: Synthese par categorie.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AvailabilitySummary"
+  /available-rooms:
+    get:
+      tags: [Availability]
+      summary: Lister les chambres disponibles sur une periode
+      operationId: getAvailableRooms
+      parameters:
+        - name: check_in
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+          example: "2026-07-01"
+        - name: check_out
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+          example: "2026-07-03"
+      responses:
+        "200":
+          description: Chambres libres.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Room"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /bookings:
+    post:
+      tags: [Bookings]
+      summary: Creer une reservation
+      operationId: createBooking
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBookingRequest"
+      responses:
+        "201":
+          description: Reservation creee.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateBookingResponse"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /bookings/update-status:
+    post:
+      tags: [Bookings]
+      summary: Mettre a jour le statut d'une reservation
+      operationId: updateBookingStatus
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateBookingStatusRequest"
+      responses:
+        "200":
+          description: Statut mis a jour.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "400":
+          description: Aucun identifiant fourni.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Reservation introuvable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /reservations/all:
+    get:
+      tags: [Bookings]
+      summary: Lister les reservations non annulees
+      operationId: getAllReservations
+      parameters:
+        - name: date
+          in: query
+          required: false
+          schema:
+            oneOf:
+              - type: string
+                format: date
+              - type: string
+                const: all
+          examples:
+            date:
+              value: "2026-07-01"
+            all:
+              value: all
+      responses:
+        "200":
+          description: Reservations formatees.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Reservation"
+  /active-reservations:
+    get:
+      tags: [Bookings]
+      summary: Lister les reservations actives sur une date
+      operationId: getActiveReservations
+      parameters:
+        - $ref: "#/components/parameters/DateQuery"
+      responses:
+        "200":
+          description: Reservations actives compactes.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActiveReservation"
+  /dashboard/predictions:
+    get:
+      tags: [Dashboard]
+      summary: Obtenir les predictions de prix orchestrees par Laravel
+      operationId: getDashboardPredictions
+      parameters:
+        - name: days
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 30
+          example: 7
+        - name: start_date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          example: "2026-07-01"
+      responses:
+        "200":
+          description: Predictions IA ou fallback.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LaravelPredictionResponse"
+  /dashboard/audit-date:
+    get:
+      tags: [Dashboard]
+      summary: Auditer l'occupation et le chiffre d'affaires d'une date
+      operationId: auditDate
+      parameters:
+        - $ref: "#/components/parameters/DateQuery"
+      responses:
+        "200":
+          description: Audit financier journalier.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditDateResponse"
+  /users:
+    get:
+      tags: [Users]
+      summary: Lister les utilisateurs
+      operationId: getUsers
+      responses:
+        "200":
+          description: Utilisateurs tries par nom.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+    post:
+      tags: [Users]
+      summary: Creer un utilisateur
+      operationId: createUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUserRequest"
+      responses:
+        "200":
+          description: Utilisateur cree.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateUserResponse"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /users/update:
+    post:
+      tags: [Users]
+      summary: Mettre a jour un utilisateur
+      operationId: updateUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserRequest"
+      responses:
+        "200":
+          description: Utilisateur mis a jour.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /users/{id}:
+    delete:
+      tags: [Users]
+      summary: Supprimer un utilisateur
+      operationId: deleteUser
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          example: 1
+      responses:
+        "200":
+          description: Utilisateur supprime.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+components:
+  parameters:
+    DateQuery:
+      name: date
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date
+      example: "2026-07-01"
+  responses:
+    ValidationError:
+      description: Validation Laravel echouee.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/LaravelValidationError"
+  schemas:
+    SuccessResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: success
+    ErrorResponse:
+      type: object
+      required: [status, message]
+      properties:
+        status:
+          type: string
+          example: error
+        message:
+          type: string
+    MessageResponse:
+      type: object
+      required: [status, message]
+      properties:
+        status:
+          type: string
+          example: success
+        message:
+          type: string
+    LaravelValidationError:
+      type: object
+      properties:
+        message:
+          type: string
+          example: The given data was invalid.
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: admin@kamoro.test
+        password:
+          type: string
+          format: password
+          example: password
+    LoginResponse:
+      type: object
+      required: [status, user]
+      properties:
+        status:
+          type: string
+          example: success
+        user:
+          $ref: "#/components/schemas/User"
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: Admin
+        email:
+          type: string
+          format: email
+          example: admin@kamoro.test
+        role:
+          type: string
+          enum: [admin, receptionist]
+          example: admin
+    CreateUserRequest:
+      type: object
+      required: [name, email, password, role]
+      properties:
+        name:
+          type: string
+          example: Admin
+        email:
+          type: string
+          format: email
+          example: admin@kamoro.test
+        password:
+          type: string
+          minLength: 6
+          example: password
+        role:
+          type: string
+          enum: [admin, receptionist]
+    CreateUserResponse:
+      type: object
+      required: [status, id]
+      properties:
+        status:
+          type: string
+          example: success
+        id:
+          type: integer
+          example: 1
+    UpdateUserRequest:
+      allOf:
+        - $ref: "#/components/schemas/CreateUserRequest"
+        - type: object
+          required: [id]
+          properties:
+            id:
+              type: integer
+              example: 1
+            password:
+              type: string
+              nullable: true
+              minLength: 6
+    Room:
+      type: object
+      required: [id, room_number, type, model, base_price_ariary, fixed_price_ariary, is_fixed_price]
+      properties:
+        id:
+          type: integer
+          example: 12
+        room_number:
+          type: string
+          example: "103"
+        type:
+          type: string
+          example: Chambre Double
+        model:
+          type: string
+          example: Superieure
+        base_price_ariary:
+          type: integer
+          example: 125000
+        fixed_price_ariary:
+          type: integer
+          example: 125000
+        is_fixed_price:
+          type: boolean
+          example: false
+    AvailabilitySummary:
+      type: object
+      required: [type, model, base_price, fixed_price, is_fixed_price, total, available]
+      properties:
+        type:
+          type: string
+          example: Chambre Double
+        model:
+          type: string
+          example: Superieure
+        base_price:
+          type: integer
+          example: 125000
+        fixed_price:
+          type: integer
+          example: 125000
+        is_fixed_price:
+          type: boolean
+          example: false
+        total:
+          type: integer
+          example: 8
+        available:
+          type: integer
+          example: 5
+    CreateBookingRequest:
+      type: object
+      required: [client_name, check_in, check_out, room_ids]
+      properties:
+        client_name:
+          type: string
+          example: Jean Rakoto
+        customer_phone:
+          type: string
+          nullable: true
+          example: "0340000000"
+        customer_email:
+          type: string
+          nullable: true
+          example: jean@example.com
+        check_in:
+          type: string
+          format: date
+          example: "2026-07-01"
+        check_out:
+          type: string
+          format: date
+          example: "2026-07-03"
+        room_ids:
+          type: array
+          minItems: 1
+          items:
+            type: integer
+          example: [12, 13]
+        room_prices:
+          type: array
+          nullable: true
+          items:
+            $ref: "#/components/schemas/RoomPrice"
+        source:
+          type: string
+          nullable: true
+          enum: [Appel, Mail, Booking]
+          example: Appel
+        receptionist_name:
+          type: string
+          nullable: true
+          example: Admin
+    RoomPrice:
+      type: object
+      required: [id, price]
+      properties:
+        id:
+          type: integer
+          example: 12
+        price:
+          type: integer
+          minimum: 0
+          example: 136000
+    CreateBookingResponse:
+      type: object
+      required: [status, message, reference]
+      properties:
+        status:
+          type: string
+          example: success
+        message:
+          type: string
+          example: Reservation enregistree avec succes
+        reference:
+          type: string
+          example: RES-A1B2C3
+    UpdateBookingStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        id:
+          type: integer
+          nullable: true
+          example: 42
+        reference:
+          type: string
+          nullable: true
+          example: RES-A1B2C3
+        status:
+          type: string
+          enum: [en_attente, arrive, annule]
+          example: arrive
+    Reservation:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 42
+        reference:
+          type: string
+          example: RES-A1B2C3
+        client_name:
+          type: string
+          example: Jean Rakoto
+        phone:
+          type: string
+          example: "0340000000"
+        email:
+          type: string
+          example: jean@example.com
+        check_in:
+          type: string
+          format: date
+          example: "2026-07-01"
+        check_out:
+          type: string
+          format: date
+          example: "2026-07-03"
+        status:
+          type: string
+          enum: [en_attente, arrive, annule]
+        source:
+          type: string
+          example: Appel
+        rooms:
+          type: string
+          example: 2x Chambre Double (Superieure)
+        room_numbers:
+          type: string
+          example: "103, 104"
+        total_price:
+          type: integer
+          example: 272000
+        fixed_total_price:
+          type: integer
+          example: 250000
+        is_booking:
+          type: boolean
+          example: false
+        receptionist:
+          type: string
+          example: Admin
+        created_at:
+          type: string
+          nullable: true
+          example: "2026-06-15 10:00:00"
+    ActiveReservation:
+      type: object
+      properties:
+        reference:
+          type: string
+        client_name:
+          type: string
+        contact:
+          type: string
+        check_in:
+          type: string
+          format: date
+        check_out:
+          type: string
+          format: date
+        status:
+          type: string
+        source:
+          type: string
+        total_price:
+          type: integer
+        fixed_total_price:
+          type: integer
+        is_booking:
+          type: boolean
+        rooms:
+          type: string
+        room_numbers:
+          type: string
+    PredictionItem:
+      type: object
+      required: [date, predicted_occupancy, fixed_price_ariary, adjusted_price_ariary, suggested_price_ariary, base_price, is_fixed_price]
+      properties:
+        date:
+          type: string
+          format: date
+        predicted_occupancy:
+          type: integer
+        fixed_price_ariary:
+          type: integer
+        adjusted_price_ariary:
+          type: integer
+        suggested_price_ariary:
+          type: integer
+        base_price:
+          type: integer
+        is_fixed_price:
+          type: boolean
+    LaravelPredictionResponse:
+      type: object
+      required: [status, mode, ai_available, is_fallback, results]
+      properties:
+        status:
+          type: string
+          example: success
+        mode:
+          type: string
+          enum: [ai, fallback]
+        ai_available:
+          type: boolean
+        is_fallback:
+          type: boolean
+        message:
+          type: string
+          nullable: true
+        results:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              $ref: "#/components/schemas/PredictionItem"
+    AuditDateResponse:
+      type: object
+      required: [status, rooms_confirmed, rooms_estimated, daily_ca_official, daily_ca_pending, total_ca, period]
+      properties:
+        status:
+          type: string
+          example: success
+        rooms_confirmed:
+          type: integer
+          example: 12
+        rooms_estimated:
+          type: integer
+          example: 18
+        daily_ca_official:
+          type: integer
+          example: 1500000
+        daily_ca_pending:
+          type: integer
+          example: 500000
+        total_ca:
+          type: integer
+          example: 12000000
+        period:
+          type: string
+          example: Depuis le debut de l'annee jusqu'au 01/07/2026

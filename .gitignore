@@ -1,0 +1,31 @@
+# IDEs and Editors
+.idea/
+.vscode/
+.DS_Store
+*.swp
+
+# Python
+**/__pycache__/
+**/*.pyc
+hestia-ai/venv/
+
+# Flutter
+hestia_app/.dart_tool/
+hestia_app/.flutter-plugins
+hestia_app/.flutter-plugins-dependencies
+hestia_app/build/
+
+# PHP / Laravel (already covered by subdirectory .gitignore but good to have)
+hestiapredict/.env
+hestiapredict/vendor/
+hestiapredict/node_modules/
+hestiapredict/storage/*.key
+hestiapredict/storage/framework/cache/data/*
+hestiapredict/storage/framework/sessions/*
+hestiapredict/storage/framework/views/*
+hestiapredict/storage/logs/*
+
+# Misc
+.dev-logs/
+database.sqlite
+~$*.docx

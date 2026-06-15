@@ -1,0 +1,234 @@
+openapi: 3.1.0
+info:
+  title: HestiaPredict AI Engine - Kamoro Hotel
+  version: 1.0.0
+  description: >
+    Service FastAPI interne de prediction d'occupation et de prix suggeres.
+    Laravel reste la source de verite metier; ce service est stateless et ne
+    persiste aucune donnee.
+servers:
+  - url: http://127.0.0.1:8001
+    description: FastAPI local
+tags:
+  - name: Health
+    description: Verification de disponibilite.
+  - name: Forecasting
+    description: Prediction Prophet et application des regles de yield.
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Verifier que le moteur IA repond
+      operationId: healthCheck
+      responses:
+        "200":
+          description: Service disponible.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              examples:
+                ok:
+                  value:
+                    status: ok
+  /predict:
+    post:
+      tags: [Forecasting]
+      summary: Predire l'occupation et les prix par categorie
+      operationId: predictAndPrice
+      description: >
+        Entraine Prophet avec l'historique fourni, applique les ajustements
+        saisonniers du moteur IA, puis retourne un prix suggere par categorie
+        et par date.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PredictionRequest"
+            examples:
+              standard:
+                value:
+                  base_prices:
+                    Chambre Double - Superieure: 125000
+                  days_to_predict: 7
+                  start_date: "2026-07-01"
+                  history:
+                    - date: "2026-06-01"
+                      room_type: Chambre Double - Superieure
+                      rooms_booked: 4
+                    - date: "2026-06-02"
+                      room_type: Chambre Double - Superieure
+                      rooms_booked: 5
+                    - date: "2026-06-03"
+                      room_type: Chambre Double - Superieure
+                      rooms_booked: 3
+                    - date: "2026-06-04"
+                      room_type: Chambre Double - Superieure
+                      rooms_booked: 6
+                    - date: "2026-06-05"
+                      room_type: Chambre Double - Superieure
+                      rooms_booked: 5
+                  room_capacities:
+                    Chambre Double - Superieure: 8
+                  yield_strategy:
+                    - min_occupancy_rate: 80
+                      multiplier: 1.135
+                    - min_occupancy_rate: 20
+                      multiplier: 1.045
+                    - min_occupancy_rate: 0
+                      multiplier: 1.0
+      responses:
+        "200":
+          description: Predictions calculees.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PredictionResponse"
+        "400":
+          description: Historique insuffisant pour entrainer le modele.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FastApiError"
+              examples:
+                insufficientHistory:
+                  value:
+                    detail: Historique de données insuffisant pour l'entraînement du modèle.
+        "422":
+          description: Payload invalide.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: ok
+    HistoricData:
+      type: object
+      required: [date, room_type, rooms_booked]
+      properties:
+        date:
+          type: string
+          format: date
+          example: "2026-06-01"
+        room_type:
+          type: string
+          example: Chambre Double - Superieure
+        rooms_booked:
+          type: integer
+          minimum: 0
+          example: 4
+    YieldRule:
+      type: object
+      required: [min_occupancy_rate, multiplier]
+      properties:
+        min_occupancy_rate:
+          type: number
+          minimum: 0
+          maximum: 100
+          example: 80
+        multiplier:
+          type: number
+          exclusiveMinimum: 0
+          example: 1.135
+    PredictionRequest:
+      type: object
+      required: [base_prices, history]
+      properties:
+        base_prices:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
+          example:
+            Chambre Double - Superieure: 125000
+        days_to_predict:
+          type: integer
+          minimum: 1
+          default: 30
+          example: 30
+        start_date:
+          type: string
+          format: date
+          nullable: true
+          example: "2026-07-01"
+        history:
+          type: array
+          items:
+            $ref: "#/components/schemas/HistoricData"
+        room_capacities:
+          type: object
+          nullable: true
+          additionalProperties:
+            type: integer
+            minimum: 0
+          example:
+            Chambre Double - Superieure: 8
+        yield_strategy:
+          type: array
+          nullable: true
+          items:
+            $ref: "#/components/schemas/YieldRule"
+    PredictionItem:
+      type: object
+      required: [date, predicted_occupancy, suggested_price_ariary, base_price]
+      properties:
+        date:
+          type: string
+          format: date
+          example: "2026-07-01"
+        predicted_occupancy:
+          type: integer
+          minimum: 0
+          example: 6
+        suggested_price_ariary:
+          type: integer
+          minimum: 0
+          example: 136000
+        base_price:
+          type: integer
+          minimum: 0
+          example: 125000
+    PredictionResponse:
+      type: object
+      required: [status, results]
+      properties:
+        status:
+          type: string
+          example: success
+        results:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              $ref: "#/components/schemas/PredictionItem"
+    FastApiError:
+      type: object
+      properties:
+        detail:
+          type: string
+    ValidationError:
+      type: object
+      properties:
+        detail:
+          type: array
+          items:
+            type: object
+            properties:
+              loc:
+                type: array
+                items:
+                  anyOf:
+                    - type: string
+                    - type: integer
+              msg:
+                type: string
+              type:
+                type: string

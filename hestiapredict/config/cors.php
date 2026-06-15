@@ -1,0 +1,16 @@
+<?php
+
+return [
+    'paths' => ['api/*', 'sanctum/csrf-cookie'],
+    'allowed_methods' => ['*'],
+    // Les origines sont configurables pour éviter d'exposer l'API à tout le Web en production.
+    'allowed_origins' => array_filter(explode(',', env(
+        'CORS_ALLOWED_ORIGINS',
+        'http://localhost:8080,http://127.0.0.1:8080'
+    ))),
+    'allowed_origins_patterns' => [],
+    'allowed_headers' => ['*'],
+    'exposed_headers' => [],
+    'max_age' => 0,
+    'supports_credentials' => false,
+];
