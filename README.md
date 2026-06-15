@@ -12,21 +12,22 @@ L'application est composée de trois parties :
 
 ## Fonctionnalités
 
-- Authentification du personnel.
+- Authentification du personnel avec gestion des rôles (`admin`, `receptionist`).
 - Tableau de bord réception avec simulation IA des gains de revenus (`ai-revenue-summary`).
-- Module PMS intégré : Check-in client avec prise de photo (image_picker), gestion des factures (folios) et paiements.
-- Génération de factures au format PDF (dompdf) et envoi par email.
+- **Module PMS intégré** : 
+    - **Check-in client** : Prise de photo d'identité (via `image_picker`), enregistrement des informations légales et passage automatique du statut à `arrive`.
+    - **Gestion des Folios** : Facturation détaillée par réservation avec ajout d'extras (lits, matelas, consommations) et de remises.
+    - **Suivi des paiements** : Multi-modes (espèces, carte, mobile money) avec gestion des paiements partiels et soldes.
+    - **Documents PDF** : Génération de factures professionnelles au format PDF (via `dompdf`) avec possibilité de partage, impression ou envoi par email directement depuis l'application Flutter.
 - Gestion des extras (lits supplémentaires, matelas).
-- Disponibilité en temps réel par catégorie de chambre.
-- Recherche et filtrage des réservations.
-- Création de réservations multi-chambres.
-- Gestion des statuts et paiements : `en_attente`, `arrive` (payé/non payé), `annule`.
-- Gestion des utilisateurs staff.
-- Prix fixes pour certaines chambres.
-- Prix dynamiques basés sur occupation prévue et règles de yield (avec mise en cache des modèles IA).
-- Mode fallback lorsque le moteur IA est indisponible.
-- Documentation OpenAPI pour les deux backends.
-- Tests automatisés Laravel, FastAPI et Flutter.
+- Disponibilité en temps réel par catégorie de chambre avec **cache-busting** pour garantir la fraîcheur des données.
+- Recherche et filtrage avancé des réservations.
+- **Accès historique sécurisé** : Les administrateurs peuvent consulter l'historique complet, tandis que le staff est limité aux réservations futures et présentes.
+- Création de réservations multi-chambres avec capture du prix au moment de la vente (`price_snapshot`).
+- Gestion des statuts : `en_attente`, `arrive` (payé/partiel/non payé), `annule`.
+- Moteur IA basé sur **Facebook Prophet** pour les prévisions d'occupation et suggestions de prix dynamiques.
+- Documentation OpenAPI complète pour les deux backends.
+- Tests automatisés Laravel (Feature/Unit), FastAPI et Flutter.
 
 ## Architecture
 

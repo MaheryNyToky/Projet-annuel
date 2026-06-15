@@ -44,9 +44,16 @@ Route<T> _reservationRoute<T>(Widget page) {
 }
 
 class ReservationsListPage extends StatefulWidget {
-  const ReservationsListPage({super.key, required this.userName});
+  const ReservationsListPage({
+    super.key,
+    required this.role,
+    required this.userName,
+    this.initialDate,
+  });
 
+  final String role;
   final String userName;
+  final DateTime? initialDate;
   @override
   State<ReservationsListPage> createState() => _ReservationsListPageState();
 }
@@ -522,7 +529,7 @@ class _EditReservationPageState extends State<EditReservationPage> {
 class _ReservationsListPageState extends State<ReservationsListPage> {
   List<dynamic> _reservations = [];
   bool _isLoading = true;
-  DateTime _selectedDate = DateTime.now();
+  late DateTime _selectedDate;
   bool _showAllDates = false;
   String _statusFilter = 'pending';
   String _searchQuery = '';
@@ -530,7 +537,26 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
   @override
   void initState() {
     super.initState();
+    _selectedDate = _normalizeSelectedDate(
+      widget.initialDate ?? DateTime.now(),
+    );
     _fetchReservations();
+  }
+
+  bool get _isAdmin => widget.role == 'admin';
+
+  DateTime get _todayOnly =>
+      DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
+
+  DateTime get _firstSelectableDate =>
+      _isAdmin ? _todayOnly.subtract(const Duration(days: 730)) : _todayOnly;
+
+  DateTime _normalizeSelectedDate(DateTime date) {
+    final normalized = DateTime(date.year, date.month, date.day);
+    if (normalized.isBefore(_firstSelectableDate)) {
+      return _firstSelectableDate;
+    }
+    return normalized;
   }
 
   int _asInt(dynamic value) {
@@ -545,8 +571,11 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
       String dateParam = _showAllDates
           ? 'all'
           : _selectedDate.toIso8601String().substring(0, 10);
+      final cacheBust = DateTime.now().millisecondsSinceEpoch;
       final response = await http.get(
-        Uri.parse('$baseUrl/api/reservations/all?date=$dateParam'),
+        Uri.parse(
+          '$baseUrl/api/reservations/all?date=$dateParam&_ts=$cacheBust',
+        ),
       );
       if (response.statusCode == 200) {
         List<dynamic> data = json.decode(response.body);
@@ -723,11 +752,7 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                   paymentStatus == 'unbilled'),
         _ => true,
       };
-      final reservationDate = (reservation['check_in'] ?? '')
-          .toString()
-          .substring(0, 10);
-      final matchesDate = _showAllDates || reservationDate == selectedDateKey;
-      return matchesSearch && matchesStatus && matchesDate;
+      return matchesSearch && matchesStatus;
     }).toList();
 
     return Scaffold(
@@ -780,12 +805,9 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                     setState(() {
                       _statusFilter = value;
                       if (value == 'unpaid') {
-                        final today = DateTime.now();
-                        _selectedDate = DateTime(
-                          today.year,
-                          today.month,
-                          today.day,
-                        ).subtract(const Duration(days: 1));
+                        _selectedDate = _todayOnly.subtract(
+                          const Duration(days: 1),
+                        );
                         _showAllDates = false;
                       }
                     });
@@ -804,15 +826,15 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                         var d = await showDatePicker(
                           context: context,
                           initialDate: _selectedDate,
-                          firstDate: DateTime.now().subtract(
-                            const Duration(days: 365),
-                          ),
+                          firstDate: _firstSelectableDate,
                           lastDate: DateTime.now().add(
                             const Duration(days: 365),
                           ),
                         );
                         if (d != null) {
-                          setState(() => _selectedDate = d);
+                          setState(
+                            () => _selectedDate = _normalizeSelectedDate(d),
+                          );
                           _fetchReservations();
                         }
                       },

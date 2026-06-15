@@ -456,24 +456,58 @@ Ces endpoints gèrent le check-in, la facturation et les paiements.
 
 | Méthode | Route | Description |
 | --- | --- | --- |
-| `POST` | `/guests/checkin` | Enregistre un client (guest) pour une réservation et génère la facture initiale. |
-| `GET` | `/invoices/{id}` | Récupère la facture (folio) et ses détails. |
-| `POST` | `/invoices/{id}/items` | Ajoute un élément à la facture (taxe, extra, discount). |
-| `POST` | `/invoices/{id}/payments` | Enregistre un paiement (cash, card, mobile_money). |
-| `POST` | `/invoices/{id}/generate-pdf` | Génère le PDF de la facture. |
+| `POST` | `/reservations/{id}/checkin` | Enregistre un client (guest) pour une réservation, met à jour le statut à `arrive` et génère ou synchronise le folio. |
+| `GET` | `/reservations/{id}/folio` | Récupère la facture (folio) associée à une réservation, avec le détail des lignes et des paiements. |
+| `POST` | `/invoices/{id}/items` | Ajoute un élément à la facture (type: `room`, `tax`, `extra`, `deposit`). |
+| `POST` | `/invoices/{id}/payments` | Enregistre un paiement (méthodes: `Espèces`, `Carte Bancaire`, `Mobile Money`, etc.). |
+| `POST` | `/invoices/{id}/generate-pdf` | Calcule les remises, génère le numéro de facture et produit le fichier PDF. |
 | `GET` | `/invoices/{id}/pdf` | Télécharge le PDF de la facture. |
-| `POST` | `/invoices/{id}/send-email` | Envoie la facture par email. |
+| `POST` | `/invoices/{id}/send-email` | Envoie la facture par email au client. |
+
+#### `POST /reservations/{id}/checkin`
+
+Payload :
+```json
+{
+  "full_name": "Jean Rakoto",
+  "customer_phone": "0340000000",
+  "date_of_birth": "1985-05-20",
+  "id_type": "CIN",
+  "id_number": "123456789012",
+  "id_photo": "(file binary)"
+}
+```
+
+#### `POST /invoices/{id}/generate-pdf`
+
+Payload optionnel pour les remises :
+```json
+{
+  "discount_mode": "percent",
+  "discount_value": 10
+}
+```
 
 ### Endpoints utilisateurs
 
-Ces endpoints gèrent le staff. Ils devraient être réservés aux admins dans une évolution future.
+Ces endpoints gèrent le staff.
 
 | Méthode | Route | Description |
 | --- | --- | --- |
-| `GET` | `/users` | Liste les utilisateurs |
-| `POST` | `/users` | Crée un utilisateur |
-| `POST` | `/users/update` | Met à jour un utilisateur |
-| `DELETE` | `/users/{id}` | Supprime un utilisateur |
+| `GET` | `/users` | Liste les utilisateurs triés par nom. |
+| `POST` | `/users` | Crée un nouvel utilisateur (admin ou receptionist). |
+| `POST` | `/users/update` | Met à jour les informations d'un utilisateur (id requis). |
+| `DELETE` | `/users/{id}` | Supprime un utilisateur. |
+
+## Application Flutter
+
+### Optimisations et Rôles
+
+- **Cache busting** : Les appels API incluent désormais un paramètre `_ts` (timestamp) pour éviter les problèmes de mise en cache des navigateurs.
+- **Gestion des rôles** : 
+    - Les administrateurs peuvent naviguer dans l'historique des réservations (jusqu'à 2 ans en arrière).
+    - Les réceptionnistes sont limités aux réservations à partir de la date du jour.
+- **Navigation** : Le passage du tableau de bord à la liste des réservations conserve désormais la date sélectionnée.
 
 ## Backend FastAPI - Moteur IA
 

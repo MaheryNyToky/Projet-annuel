@@ -362,10 +362,15 @@ class _StaffDashboardState extends State<StaffDashboard> {
     if (!isSilent) setState(() => _isLoading = true);
     setState(() => _errorMessage = '');
     String dateStr = _selectedDate.toIso8601String().substring(0, 10);
+    final cacheBust = DateTime.now().millisecondsSinceEpoch;
 
     try {
       final availResp = await http
-          .get(Uri.parse('$baseUrl/api/live-availability?date=$dateStr'))
+          .get(
+            Uri.parse(
+              '$baseUrl/api/live-availability?date=$dateStr&_ts=$cacheBust',
+            ),
+          )
           .timeout(const Duration(seconds: 5));
       if (availResp.statusCode == 200) {
         setState(() {
@@ -383,7 +388,11 @@ class _StaffDashboardState extends State<StaffDashboard> {
     }
 
     http
-        .get(Uri.parse('$baseUrl/api/reservations/all?date=$dateStr'))
+        .get(
+          Uri.parse(
+            '$baseUrl/api/reservations/all?date=$dateStr&_ts=$cacheBust',
+          ),
+        )
         .then((reservationsResp) {
           if (!mounted || reservationsResp.statusCode != 200) return;
           final reservations =
@@ -404,7 +413,11 @@ class _StaffDashboardState extends State<StaffDashboard> {
         });
 
     http
-        .get(Uri.parse('$baseUrl/api/dashboard/predictions?days=30'))
+        .get(
+          Uri.parse(
+            '$baseUrl/api/dashboard/predictions?days=30&_ts=$cacheBust',
+          ),
+        )
         .then((aiResp) {
           if (!mounted || aiResp.statusCode != 200) return;
           final aiData = json.decode(aiResp.body);
@@ -464,10 +477,21 @@ class _StaffDashboardState extends State<StaffDashboard> {
       aiPredictions: _aiPredictions,
       pendingGuestsCount: _pendingGuestsCount,
       arrivedGuestsCount: _arrivedGuestsCount,
-      onReservationsTap: () => Navigator.push(
-        context,
-        _softRoute(ReservationsListPage(userName: widget.userName)),
-      ),
+      onReservationsTap: () async {
+        await Navigator.push(
+          context,
+          _softRoute(
+            ReservationsListPage(
+              role: widget.role,
+              userName: widget.userName,
+              initialDate: _selectedDate,
+            ),
+          ),
+        );
+        if (mounted) {
+          _fetchLiveAvailability();
+        }
+      },
       onDateTap: () async {
         var d = await showDatePicker(
           context: context,

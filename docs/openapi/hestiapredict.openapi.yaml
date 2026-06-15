@@ -83,6 +83,12 @@ paths:
             type: string
             format: date
           example: "2026-07-03"
+        - name: exclude_reservation_id
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: ID d'une reservation a exclure du calcul d'occupation (utile pour modification).
       responses:
         "200":
           description: Chambres libres.
@@ -258,19 +264,56 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AuditDateResponse"
-  /guests/checkin:
+  /reservations/{id}/checkin:
     post:
       tags: [PMS]
       summary: Enregistre un client et génère la facture
       operationId: checkInGuest
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [full_name, date_of_birth, id_type, id_number]
+              properties:
+                full_name:
+                  type: string
+                customer_phone:
+                  type: string
+                date_of_birth:
+                  type: string
+                  format: date
+                id_type:
+                  type: string
+                  enum: [CIN, Passeport, Permis]
+                id_number:
+                  type: string
+                id_photo:
+                  type: string
+                  format: binary
       responses:
         "200":
-          description: OK
-  /invoices/{id}:
+          description: Check-in réussi.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: {type: string}
+                  guest: {$ref: "#/components/schemas/Guest"}
+                  reservation: {$ref: "#/components/schemas/Reservation"}
+  /reservations/{id}/folio:
     get:
       tags: [PMS]
-      summary: Récupère la facture
-      operationId: getInvoice
+      summary: Récupère la facture (folio) d'une réservation
+      operationId: getFolio
       parameters:
         - name: id
           in: path
@@ -279,7 +322,11 @@ paths:
             type: integer
       responses:
         "200":
-          description: OK
+          description: Détails du folio.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Invoice"
   /invoices/{id}/items:
     post:
       tags: [PMS]
@@ -291,9 +338,30 @@ paths:
           required: true
           schema:
             type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [description, type, amount_ariary, quantity]
+              properties:
+                description: {type: string}
+                type:
+                  type: string
+                  enum: [room, tax, extra, deposit]
+                amount_ariary: {type: integer}
+                quantity: {type: integer}
       responses:
         "200":
-          description: OK
+          description: Ligne ajoutée.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: {type: string}
+                  invoice: {$ref: "#/components/schemas/Invoice"}
   /invoices/{id}/payments:
     post:
       tags: [PMS]
@@ -305,9 +373,31 @@ paths:
           required: true
           schema:
             type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount_ariary, payment_method]
+              properties:
+                amount_ariary: {type: integer}
+                payment_method:
+                  type: string
+                  enum: [Espèces, Carte Bancaire, Mobile Money, Chèque, Virement, Acompte]
+                reference: {type: string}
+                processed_by_name: {type: string}
       responses:
         "200":
-          description: OK
+          description: Paiement enregistré.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: {type: string}
+                  payment: {$ref: "#/components/schemas/Payment"}
+                  invoice: {$ref: "#/components/schemas/Invoice"}
   /invoices/{id}/generate-pdf:
     post:
       tags: [PMS]
@@ -319,9 +409,26 @@ paths:
           required: true
           schema:
             type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pricing_mode: {type: string, enum: [fixed, ai]}
+                discount_mode: {type: string, enum: [percent, amount]}
+                discount_value: {type: number}
       responses:
         "200":
-          description: OK
+          description: Facture générée.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: {type: string}
+                  invoice: {$ref: "#/components/schemas/Invoice"}
+                  pdf_url: {type: string}
   /invoices/{id}/pdf:
     get:
       tags: [PMS]
@@ -335,7 +442,12 @@ paths:
             type: integer
       responses:
         "200":
-          description: OK
+          description: Fichier PDF.
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
   /invoices/{id}/send-email:
     post:
       tags: [PMS]
@@ -347,9 +459,18 @@ paths:
           required: true
           schema:
             type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: {type: string, format: email}
       responses:
         "200":
-          description: OK
+          description: Email envoyé.
   /users:
     get:
       tags: [Users]
@@ -640,6 +761,12 @@ components:
           nullable: true
           items:
             $ref: "#/components/schemas/RoomPrice"
+        extra_beds:
+          type: integer
+          default: 0
+        extra_mattresses:
+          type: integer
+          default: 0
         source:
           type: string
           nullable: true
@@ -687,8 +814,11 @@ components:
           example: RES-A1B2C3
         status:
           type: string
-          enum: [en_attente, arrive, annule]
+          enum: [en_attente, arrive, arrive_paid, arrive_unpaid, annule]
           example: arrive
+        cancelled_by_name:
+          type: string
+          nullable: true
     Reservation:
       type: object
       properties:
@@ -857,3 +987,50 @@ components:
         period:
           type: string
           example: Depuis le debut de l'annee jusqu'au 01/07/2026
+    Guest:
+      type: object
+      properties:
+        id: {type: integer}
+        full_name: {type: string}
+        date_of_birth: {type: string, format: date}
+        id_type: {type: string}
+        id_number: {type: string}
+        id_photo_path: {type: string, nullable: true}
+    Invoice:
+      type: object
+      properties:
+        id: {type: integer}
+        reservation_id: {type: integer}
+        invoice_number: {type: string, nullable: true}
+        status: {type: string, enum: [open, partial, paid, finalized]}
+        total_amount_ariary: {type: integer}
+        tax_amount_ariary: {type: integer}
+        discount_amount_ariary: {type: integer}
+        paid_amount_ariary: {type: integer}
+        balance_amount_ariary: {type: integer}
+        pdf_url: {type: string, nullable: true}
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/InvoiceItem"}
+        payments:
+          type: array
+          items: {$ref: "#/components/schemas/Payment"}
+        guest: {$ref: "#/components/schemas/Guest"}
+    InvoiceItem:
+      type: object
+      properties:
+        id: {type: integer}
+        description: {type: string}
+        type: {type: string, enum: [room, tax, extra, deposit]}
+        amount_ariary: {type: integer}
+        quantity: {type: integer}
+        line_total_ariary: {type: integer}
+    Payment:
+      type: object
+      properties:
+        id: {type: integer}
+        amount_ariary: {type: integer}
+        payment_method: {type: string}
+        reference: {type: string, nullable: true}
+        processed_by_name: {type: string, nullable: true}
+        created_at: {type: string}
