@@ -20,6 +20,8 @@ return new class extends Migration
             $table->string('id_number');
             $table->string('id_photo_path')->nullable();
             $table->timestamps();
+
+            $table->unique('reservation_id');
         });
     }
 

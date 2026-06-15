@@ -1,3 +1,4 @@
+import time
 from typing import Dict, List
 
 import pandas as pd
@@ -12,6 +13,10 @@ from app.config import (
     WEEKEND_DAYS,
 )
 from app.models import HistoricData, YieldRule
+
+
+MODEL_CACHE_TTL_SECONDS = 6 * 60 * 60
+MODELS_CACHE = {}
 
 
 def predict_prices(
@@ -44,7 +49,7 @@ def predict_prices(
             continue
 
         try:
-            predictions_df = _forecast_room_type(df_type, start_dt_str, periods)
+            predictions_df = _forecast_room_type(room_type, df_type, start_dt_str, periods)
             base_price = max(0, base_prices.get(room_type, DEFAULT_BASE_PRICE))
             capacity = max(0, (room_capacities or {}).get(room_type, DEFAULT_CAPACITY))
             all_predictions[room_type] = _price_predictions(
@@ -59,16 +64,28 @@ def predict_prices(
     return all_predictions
 
 
-def _forecast_room_type(df_type: pd.DataFrame, start_date: str, periods: int) -> pd.DataFrame:
-    model = Prophet(
-        yearly_seasonality=True,
-        weekly_seasonality=True,
-        daily_seasonality=False,
-        changepoint_prior_scale=0.1,
-        seasonality_mode="multiplicative",
-    )
-    model.add_country_holidays(country_name="MG")
-    model.fit(df_type[["ds", "y"]])
+def _forecast_room_type(
+    room_type: str,
+    df_type: pd.DataFrame,
+    start_date: str,
+    periods: int,
+) -> pd.DataFrame:
+    cached = MODELS_CACHE.get(room_type)
+    now = time.time()
+
+    if cached and now - cached[0] < MODEL_CACHE_TTL_SECONDS:
+        model = cached[1]
+    else:
+        model = Prophet(
+            yearly_seasonality=True,
+            weekly_seasonality=True,
+            daily_seasonality=False,
+            changepoint_prior_scale=0.1,
+            seasonality_mode="multiplicative",
+        )
+        model.add_country_holidays(country_name="MG")
+        model.fit(df_type[["ds", "y"]])
+        MODELS_CACHE[room_type] = (now, model)
 
     future_dates = pd.date_range(start=start_date, periods=periods, freq="D")
     forecast = model.predict(pd.DataFrame({"ds": future_dates}))

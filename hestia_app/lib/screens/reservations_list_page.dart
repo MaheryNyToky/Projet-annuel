@@ -8,6 +8,7 @@ import '../core/formatters.dart';
 import '../models/reservation.dart';
 import '../services/api_client.dart';
 import 'checkin_page.dart';
+import 'folio_page.dart';
 
 const String baseUrl = AppConfig.apiBaseUrl;
 const Color _primary = Color(0xFF0F766E);
@@ -43,7 +44,9 @@ Route<T> _reservationRoute<T>(Widget page) {
 }
 
 class ReservationsListPage extends StatefulWidget {
-  const ReservationsListPage({super.key});
+  const ReservationsListPage({super.key, required this.userName});
+
+  final String userName;
   @override
   State<ReservationsListPage> createState() => _ReservationsListPageState();
 }
@@ -66,6 +69,8 @@ class _EditReservationPageState extends State<EditReservationPage> {
   late final TextEditingController _emailController;
   late DateTime _checkIn;
   late DateTime _checkOut;
+  late int _extraBeds;
+  late int _extraMattresses;
   final List<Map<String, dynamic>> _selectedRooms = [];
   List<Map<String, dynamic>> _availableRooms = [];
   bool _isLoadingRooms = true;
@@ -81,6 +86,8 @@ class _EditReservationPageState extends State<EditReservationPage> {
     _emailController = TextEditingController(text: _reservation.email);
     _checkIn = _reservation.checkIn;
     _checkOut = _reservation.checkOut;
+    _extraBeds = _reservation.extraBeds;
+    _extraMattresses = _reservation.extraMattresses;
     _selectedRooms.addAll(_initialRooms());
     _fetchRooms();
   }
@@ -259,6 +266,8 @@ class _EditReservationPageState extends State<EditReservationPage> {
           checkIn: _checkIn,
           checkOut: _checkOut,
           roomIds: _selectedRooms.map((room) => _asInt(room['id'])).toList(),
+          extraBeds: _extraBeds,
+          extraMattresses: _extraMattresses,
         ),
       );
 
@@ -362,6 +371,23 @@ class _EditReservationPageState extends State<EditReservationPage> {
                       title: Text('Départ : $_checkOutKey'),
                       trailing: const Icon(Icons.calendar_today),
                       onTap: _pickCheckOut,
+                    ),
+                    const SizedBox(height: 12),
+                    _QuantitySelector(
+                      icon: Icons.bed_outlined,
+                      label: 'Lit supplémentaire',
+                      unitPrice: 50000,
+                      value: _extraBeds,
+                      onChanged: (value) => setState(() => _extraBeds = value),
+                    ),
+                    const SizedBox(height: 10),
+                    _QuantitySelector(
+                      icon: Icons.airline_seat_individual_suite_outlined,
+                      label: 'Matelas supplémentaire',
+                      unitPrice: 30000,
+                      value: _extraMattresses,
+                      onChanged: (value) =>
+                          setState(() => _extraMattresses = value),
                     ),
                     const SizedBox(height: 12),
                     Container(
@@ -497,14 +523,20 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
   List<dynamic> _reservations = [];
   bool _isLoading = true;
   DateTime _selectedDate = DateTime.now();
-  bool _showAllDates = true;
-  String _statusFilter = 'all';
+  bool _showAllDates = false;
+  String _statusFilter = 'pending';
   String _searchQuery = '';
 
   @override
   void initState() {
     super.initState();
     _fetchReservations();
+  }
+
+  int _asInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
   }
 
   Future<void> _fetchReservations() async {
@@ -539,7 +571,11 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
       final response = await http.post(
         Uri.parse('$baseUrl/api/bookings/update-status'),
         headers: {'Content-Type': 'application/json'},
-        body: json.encode({'id': id, 'status': newStatus}),
+        body: json.encode({
+          'id': id,
+          'status': newStatus,
+          if (newStatus == 'annule') 'cancelled_by_name': widget.userName,
+        }),
       );
       if (!mounted) return;
       if (response.statusCode == 200) {
@@ -592,6 +628,80 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
     }
   }
 
+  Future<void> _openFolio(Map<String, dynamic> reservation) async {
+    final selection = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) {
+        String pricingMode = 'fixed';
+        return AlertDialog(
+          title: const Text('Tarif avant facturation'),
+          content: StatefulBuilder(
+            builder: (context, setDialogState) => Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ToggleButtons(
+                  isSelected: [pricingMode == 'fixed', pricingMode == 'ai'],
+                  onPressed: (index) => setDialogState(() {
+                    pricingMode = index == 0 ? 'fixed' : 'ai';
+                  }),
+                  borderRadius: BorderRadius.circular(12),
+                  children: const [
+                    Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      child: Text('Tarif Fixe'),
+                    ),
+                    Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      child: Text('Tarif IA'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Le tarif fixe reste la sélection par défaut.',
+                  style: TextStyle(color: _muted, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Annuler'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context, {'pricing_mode': pricingMode});
+              },
+              child: const Text('Continuer'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (selection == null) return;
+    if (!mounted) return;
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => FolioPage(
+          reservation: reservation,
+          userName: widget.userName,
+          pricingMode: selection['pricing_mode']?.toString() ?? 'fixed',
+        ),
+      ),
+    );
+    _fetchReservations();
+  }
+
   @override
   Widget build(BuildContext context) {
     final query = _searchQuery.trim().toLowerCase();
@@ -602,9 +712,15 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
           .toLowerCase();
       final matchesSearch = query.isEmpty || clientName.contains(query);
       final status = (reservation['status'] ?? '').toString();
+      final paymentStatus = (reservation['payment_status'] ?? 'unbilled')
+          .toString();
       final matchesStatus = switch (_statusFilter) {
         'pending' => status == 'en_attente',
-        'arrive' => status == 'arrive',
+        'unpaid' =>
+          status == 'arrive' &&
+              (paymentStatus == 'unpaid' ||
+                  paymentStatus == 'partial' ||
+                  paymentStatus == 'unbilled'),
         _ => true,
       };
       final reservationDate = (reservation['check_in'] ?? '')
@@ -619,7 +735,13 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
         title: const Text('Réservations'),
         actions: [
           IconButton(
-            onPressed: _fetchReservations,
+            onPressed: () {
+              setState(() {
+                _showAllDates = false;
+                _statusFilter = 'pending';
+              });
+              _fetchReservations();
+            },
             icon: const Icon(Icons.refresh),
           ),
           TextButton(
@@ -654,7 +776,21 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                 const SizedBox(height: 12),
                 _ReservationStatusSelector(
                   value: _statusFilter,
-                  onChanged: (value) => setState(() => _statusFilter = value),
+                  onChanged: (value) {
+                    setState(() {
+                      _statusFilter = value;
+                      if (value == 'unpaid') {
+                        final today = DateTime.now();
+                        _selectedDate = DateTime(
+                          today.year,
+                          today.month,
+                          today.day,
+                        ).subtract(const Duration(days: 1));
+                        _showAllDates = false;
+                      }
+                    });
+                    _fetchReservations();
+                  },
                 ),
                 const SizedBox(height: 12),
                 Wrap(
@@ -695,6 +831,7 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                       onPressed: () {
                         setState(() {
                           _showAllDates = !_showAllDates;
+                          _statusFilter = _showAllDates ? 'all' : 'pending';
                         });
                         _fetchReservations();
                       },
@@ -724,6 +861,8 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                         displayedReservations[index] as Map,
                       );
                       final canEdit = _isUpcomingReservation(res);
+                      final paymentStatus =
+                          (res['payment_status'] ?? 'unbilled').toString();
                       return Card(
                         margin: const EdgeInsets.symmetric(
                           horizontal: 16,
@@ -754,6 +893,14 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                                       icon: const Icon(Icons.edit_outlined),
                                       color: _primaryDark,
                                     ),
+                                  IconButton(
+                                    tooltip: 'Folio',
+                                    onPressed: () => _openFolio(res),
+                                    icon: const Icon(
+                                      Icons.receipt_long_outlined,
+                                    ),
+                                    color: _primaryDark,
+                                  ),
                                   _StatusChip(status: res['status']),
                                 ],
                               ),
@@ -787,8 +934,22 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                                 ),
                               ),
                               Text('Chambres : ${res['rooms']}'),
+                              if (_asInt(res['extra_beds']) > 0 ||
+                                  _asInt(res['extra_mattresses']) > 0)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 2),
+                                  child: Text(
+                                    'Suppléments : ${_asInt(res['extra_beds'])} lit(s), ${_asInt(res['extra_mattresses'])} matelas',
+                                  ),
+                                ),
                               Text(
                                 'Séjour : ${res['check_in']} au ${res['check_out']}',
+                              ),
+                              const SizedBox(height: 4),
+                              _ReservationPaymentBadge(
+                                paymentStatus: paymentStatus,
+                                processedBy: res['latest_payment_processed_by']
+                                    ?.toString(),
                               ),
                               const SizedBox(height: 10),
                               Row(
@@ -810,17 +971,18 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                                           Text(
                                             'Prix fixe : ${formatPrice(res['fixed_total_price'] ?? res['total_price'])} Ar',
                                             style: const TextStyle(
-                                              color: _muted,
-                                              fontWeight: FontWeight.w800,
+                                              color: _primaryDark,
+                                              fontWeight: FontWeight.w900,
                                               fontSize: 12,
                                             ),
                                           ),
                                           Text(
-                                            'Prix ajusté : ${formatPrice(res['total_price'])} Ar',
+                                            'Prix ajusté (IA) : ${formatPrice(res['total_price'])} Ar',
                                             style: const TextStyle(
-                                              color: _primaryDark,
-                                              fontWeight: FontWeight.w900,
-                                              fontSize: 16,
+                                              color: _muted,
+                                              fontStyle: FontStyle.italic,
+                                              fontWeight: FontWeight.w600,
+                                              fontSize: 12,
                                             ),
                                           ),
                                         ],
@@ -850,6 +1012,11 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                                         if (result == true) {
                                           _fetchReservations();
                                         }
+                                      } else if (val == 'annule') {
+                                        setState(() {
+                                          res['status'] = val;
+                                        });
+                                        _updateStatus(res['id'], val);
                                       } else {
                                         setState(() {
                                           res['status'] = val;
@@ -861,13 +1028,6 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                                 ],
                               ),
                               const SizedBox(height: 8),
-                              Text(
-                                'Source : ${res['source'] ?? 'Direct'} | Réceptionniste : ${res['receptionist']}',
-                                style: const TextStyle(
-                                  color: _muted,
-                                  fontSize: 12,
-                                ),
-                              ),
                             ],
                           ),
                         ),
@@ -961,6 +1121,70 @@ class _ReservationStatusPills extends StatelessWidget {
   }
 }
 
+class _QuantitySelector extends StatelessWidget {
+  const _QuantitySelector({
+    required this.icon,
+    required this.label,
+    required this.unitPrice,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final IconData icon;
+  final String label;
+  final int unitPrice;
+  final int value;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        border: Border.all(color: _border),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: _primaryDark),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+                Text(
+                  '${formatPrice(unitPrice)} Ar / unité',
+                  style: const TextStyle(color: _muted, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            onPressed: value <= 0 ? null : () => onChanged(value - 1),
+            icon: const Icon(Icons.remove_circle_outline),
+          ),
+          SizedBox(
+            width: 32,
+            child: Text(
+              value.toString(),
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontWeight: FontWeight.w900),
+            ),
+          ),
+          IconButton(
+            onPressed: () => onChanged(value + 1),
+            icon: const Icon(Icons.add_circle_outline),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _ReservationSearchBar extends StatefulWidget {
   const _ReservationSearchBar({
     required this.initialValue,
@@ -1037,9 +1261,9 @@ class _ReservationStatusSelector extends StatelessWidget {
           onSelected: () => onChanged('pending'),
         ),
         _StatusChoiceChip(
-          label: 'Arrivés',
-          selected: value == 'arrive',
-          onSelected: () => onChanged('arrive'),
+          label: 'Non payées',
+          selected: value == 'unpaid',
+          onSelected: () => onChanged('unpaid'),
         ),
       ],
     );
@@ -1072,6 +1296,46 @@ class _StatusChoiceChip extends StatelessWidget {
       side: BorderSide(color: selected ? _primary : _border),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       showCheckmark: false,
+    );
+  }
+}
+
+class _ReservationPaymentBadge extends StatelessWidget {
+  const _ReservationPaymentBadge({
+    required this.paymentStatus,
+    required this.processedBy,
+  });
+
+  final String paymentStatus;
+  final String? processedBy;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = switch (paymentStatus) {
+      'paid' => 'Payé',
+      'partial' => 'Partiellement payé',
+      'unpaid' => 'Non payé',
+      _ => 'Non facturé',
+    };
+    final color = switch (paymentStatus) {
+      'paid' => const Color(0xFF047857),
+      'partial' => const Color(0xFFD97706),
+      'unpaid' => const Color(0xFFBE123C),
+      _ => _muted,
+    };
+
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Text(
+        processedBy == null || processedBy!.isEmpty
+            ? label
+            : '$label • ${processedBy!}',
+        style: TextStyle(
+          color: color,
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
     );
   }
 }

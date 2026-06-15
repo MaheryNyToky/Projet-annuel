@@ -19,6 +19,10 @@ class Guest extends Model
         'id_photo_path',
     ];
 
+    protected $casts = [
+        'date_of_birth' => 'date:Y-m-d',
+    ];
+
     public function reservation(): BelongsTo
     {
         return $this->belongsTo(Reservation::class);

@@ -370,9 +370,8 @@
                                         <th class="px-5 py-3">Chambres</th>
                                         <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortReservations('check_in')">Séjour</th>
                                         <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortReservations('fixed_total_price')">Total fixe</th>
-                                        <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortReservations('total_price')">Total ajusté</th>
+                                        <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortReservations('paid_amount_ariary')">Total encaissé</th>
                                         <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortReservations('status')">Statut</th>
-                                        <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortReservations('source')">Source</th>
                                     </tr>
                                 </thead>
                                 <tbody id="reservations-table-body" class="divide-y divide-[rgba(68,52,39,0.08)]"></tbody>
@@ -411,6 +410,34 @@
                                 </div>
                             </article>
                         </aside>
+
+                        <article class="bento-card p-6 sm:p-7 xl:col-span-12">
+                            <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                                <div>
+                                    <p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">Simulation IA</p>
+                                    <h3 class="display-serif mt-2 text-3xl font-semibold text-[var(--ink)]">Gain potentiel par journée</h3>
+                                    <p class="mt-2 text-sm text-[var(--muted)]">Comparaison entre le prix fixe et les prix IA appliqués aux chambres réellement occupées ou attendues.</p>
+                                </div>
+                                <div class="sand-panel rounded-[18px] px-5 py-4">
+                                    <p class="text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">Écart total</p>
+                                    <p class="display-serif mt-1 text-3xl font-semibold text-[var(--ink)]" id="ai-summary-delta">0 Ar</p>
+                                </div>
+                            </div>
+                            <div class="table-shell mobile-card-table mt-6">
+                                <table class="data-table w-full text-left text-sm">
+                                    <thead>
+                                        <tr>
+                                            <th class="px-5 py-3">Date</th>
+                                            <th class="px-5 py-3">Chambres</th>
+                                            <th class="px-5 py-3">CA prix fixe</th>
+                                            <th class="px-5 py-3">CA IA simulé</th>
+                                            <th class="px-5 py-3">Gain / perte</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="ai-summary-table-body" class="divide-y divide-[rgba(68,52,39,0.08)]"></tbody>
+                                </table>
+                            </div>
+                        </article>
                     </div>
                 </section>
 
@@ -461,6 +488,7 @@
             loadAILogic();
             runAudit();
             loadReservations();
+            loadAiRevenueSummary();
         }
 
         function updateConnectionState(isFallback) {
@@ -646,17 +674,29 @@
             renderReservationsTable(sorted);
         }
 
-        function statusBadge(status) {
+        function statusBadge(status, paymentStatus = null, cancelledByName = null, processedByName = null) {
+            const normalizedStatus = (status || '').toString();
+            const normalizedPayment = (paymentStatus || '').toString();
             if (status === 'en_attente') {
                 return '<span class="inline-flex rounded-full bg-white/75 px-3 py-1 text-xs font-black text-sky-700">En attente</span>';
             }
-            if (status === 'arrive') {
-                return '<span class="inline-flex rounded-full bg-white/75 px-3 py-1 text-xs font-black text-emerald-700">Arrivé</span>';
+            if (normalizedStatus === 'arrive' || normalizedStatus === 'arrive_paid' || normalizedStatus === 'arrive_unpaid') {
+                const effectivePayment = normalizedStatus === 'arrive_paid'
+                    ? 'paid'
+                    : (normalizedStatus === 'arrive_unpaid' ? 'unpaid' : normalizedPayment);
+                const paymentLabel = effectivePayment === 'paid'
+                    ? 'Arrivé payé'
+                    : (effectivePayment === 'partial' || effectivePayment === 'unpaid' || effectivePayment === 'unbilled'
+                        ? 'Arrivé non payé'
+                        : 'Arrivé');
+                const suffix = processedByName ? `<span class="block text-[10px] font-semibold text-[var(--muted)]">par ${processedByName}</span>` : '';
+                return `<span class="inline-flex flex-col rounded-full bg-white/75 px-3 py-2 text-xs font-black leading-tight text-emerald-700">${paymentLabel}${suffix}</span>`;
             }
-            if (status === 'annule') {
-                return '<span class="inline-flex rounded-full bg-white/75 px-3 py-1 text-xs font-black text-rose-700">Annulé</span>';
+            if (normalizedStatus === 'annule') {
+                const suffix = cancelledByName ? `<span class="block text-[10px] font-semibold text-[var(--muted)]">par ${cancelledByName}</span>` : '';
+                return `<span class="inline-flex flex-col rounded-full bg-white/75 px-3 py-2 text-xs font-black leading-tight text-rose-700">Annulé${suffix}</span>`;
             }
-            return `<span class="inline-flex rounded-full bg-white/75 px-3 py-1 text-xs font-black text-[var(--muted)]">${status || 'N/A'}</span>`;
+            return `<span class="inline-flex rounded-full bg-white/75 px-3 py-1 text-xs font-black text-[var(--muted)]">${normalizedStatus || 'N/A'}</span>`;
         }
 
         function sourceBadge(source) {
@@ -673,7 +713,7 @@
             tableBody.innerHTML = '';
 
             if (data.length === 0) {
-                tableBody.innerHTML = '<tr><td colspan="10" class="px-5 py-8 text-center text-[var(--muted)]">Aucune réservation active pour cette date.</td></tr>';
+                tableBody.innerHTML = '<tr><td colspan="9" class="px-5 py-8 text-center text-[var(--muted)]">Aucune réservation active pour cette date.</td></tr>';
                 return;
             }
 
@@ -687,9 +727,52 @@
                     <td data-label="Chambres" class="px-5 py-4 text-xs font-semibold">${res.rooms}</td>
                     <td data-label="Séjour" class="px-5 py-4 text-xs">${res.check_in} - ${res.check_out}</td>
                     <td data-label="Total fixe" class="px-5 py-4 font-bold text-[var(--muted)]">${formatMoney(res.fixed_total_price)}</td>
-                    <td data-label="Total ajusté" class="px-5 py-4 font-black text-[var(--ink)]">${formatMoney(res.total_price)}</td>
-                    <td data-label="Statut" class="px-5 py-4">${statusBadge(res.status)}</td>
-                    <td data-label="Source" class="px-5 py-4">${sourceBadge(res.source)}</td>
+                    <td data-label="Total encaissé" class="px-5 py-4 font-black text-[var(--ink)]">${formatMoney(res.paid_amount_ariary)}</td>
+                    <td data-label="Statut" class="px-5 py-4">${statusBadge(res.status, res.payment_status, res.cancelled_by_name, res.latest_payment_processed_by)}</td>
+                `;
+                tableBody.appendChild(row);
+            });
+        }
+
+        function loadAiRevenueSummary() {
+            const daysSelected = document.getElementById('prediction-days').value;
+            const pricingDate = document.getElementById('global-date').value;
+            fetch(`/api/dashboard/ai-revenue-summary?days=${daysSelected}&start_date=${pricingDate}`)
+                .then(response => response.json())
+                .then(renderAiRevenueSummary)
+                .catch(() => {
+                    const tableBody = document.getElementById('ai-summary-table-body');
+                    if (tableBody) {
+                        tableBody.innerHTML = '<tr><td colspan="5" class="px-5 py-8 text-center text-[var(--muted)]">Récapitulatif IA indisponible.</td></tr>';
+                    }
+                });
+        }
+
+        function renderAiRevenueSummary(data) {
+            const tableBody = document.getElementById('ai-summary-table-body');
+            if (!tableBody) {
+                return;
+            }
+
+            const rows = data.rows || [];
+            document.getElementById('ai-summary-delta').innerText = formatMoney(data.totals?.delta_ariary || 0);
+            tableBody.innerHTML = '';
+
+            if (rows.length === 0) {
+                tableBody.innerHTML = '<tr><td colspan="5" class="px-5 py-8 text-center text-[var(--muted)]">Aucune journée à comparer.</td></tr>';
+                return;
+            }
+
+            rows.forEach(rowData => {
+                const delta = Number(rowData.delta_ariary || 0);
+                const deltaClass = delta > 0 ? 'text-emerald-700' : (delta < 0 ? 'text-rose-700' : 'text-[var(--muted)]');
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td data-label="Date" class="px-5 py-4 font-mono text-xs font-black text-[var(--accent)]">${rowData.date}</td>
+                    <td data-label="Chambres" class="px-5 py-4 font-bold text-[var(--ink)]">${rowData.room_count}</td>
+                    <td data-label="CA prix fixe" class="px-5 py-4 font-semibold text-[var(--muted)]">${formatMoney(rowData.fixed_revenue_ariary)}</td>
+                    <td data-label="CA IA simulé" class="px-5 py-4 font-black text-[var(--ink)]">${formatMoney(rowData.ai_revenue_ariary)}</td>
+                    <td data-label="Gain / perte" class="px-5 py-4 font-black ${deltaClass}">${delta > 0 ? '+' : ''}${formatMoney(delta)}</td>
                 `;
                 tableBody.appendChild(row);
             });

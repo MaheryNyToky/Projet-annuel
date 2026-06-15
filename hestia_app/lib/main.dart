@@ -13,7 +13,6 @@ import 'screens/admin_users_page.dart';
 import 'screens/reservations_list_page.dart';
 import 'services/session_service.dart';
 import 'widgets/availability_card.dart';
-import 'screens/checkin_page.dart';
 
 const String baseUrl = AppConfig.apiBaseUrl;
 const Color _primary = Color(0xFF0F766E);
@@ -333,6 +332,8 @@ class _StaffDashboardState extends State<StaffDashboard> {
   String _errorMessage = '';
   Timer? _timer;
   DateTime _selectedDate = DateTime.now();
+  int _pendingGuestsCount = 0;
+  int _arrivedGuestsCount = 0;
 
   @override
   void initState() {
@@ -360,43 +361,62 @@ class _StaffDashboardState extends State<StaffDashboard> {
   Future<void> _fetchLiveAvailability({bool isSilent = false}) async {
     if (!isSilent) setState(() => _isLoading = true);
     setState(() => _errorMessage = '');
+    String dateStr = _selectedDate.toIso8601String().substring(0, 10);
+
     try {
-      String dateStr = _selectedDate.toIso8601String().substring(0, 10);
-
-      // On lance les deux requêtes en parallèle pour la performance
-      final results = await Future.wait([
-        http
-            .get(Uri.parse('$baseUrl/api/live-availability?date=$dateStr'))
-            .timeout(const Duration(seconds: 5)),
-        http
-            .get(Uri.parse('$baseUrl/api/dashboard/predictions?days=30'))
-            .timeout(const Duration(seconds: 5)),
-      ]);
-
-      final availResp = results[0];
-      final aiResp = results[1];
-
+      final availResp = await http
+          .get(Uri.parse('$baseUrl/api/live-availability?date=$dateStr'))
+          .timeout(const Duration(seconds: 5));
       if (availResp.statusCode == 200) {
         setState(() {
           _categories = json.decode(availResp.body);
+          if (!isSilent) _isLoading = false;
         });
       } else {
         _useFallbackData('Erreur serveur: ${availResp.statusCode}');
-      }
-
-      if (aiResp.statusCode == 200) {
-        final aiData = json.decode(aiResp.body);
-        if (aiData['status'] == 'success') {
-          setState(() {
-            _aiPredictions = aiData['results'] ?? {};
-          });
-        }
+        if (!isSilent) setState(() => _isLoading = false);
       }
     } catch (e) {
       debugPrint("$e");
       _useFallbackData('Mode Hors-ligne : Serveur injoignable.');
+      if (!isSilent) setState(() => _isLoading = false);
     }
-    if (!isSilent) setState(() => _isLoading = false);
+
+    http
+        .get(Uri.parse('$baseUrl/api/reservations/all?date=$dateStr'))
+        .then((reservationsResp) {
+          if (!mounted || reservationsResp.statusCode != 200) return;
+          final reservations =
+              json.decode(reservationsResp.body) as List<dynamic>;
+          final pendingCount = reservations.where((reservation) {
+            return (reservation['status']?.toString() ?? '') == 'en_attente';
+          }).length;
+          final arrivedCount = reservations.where((reservation) {
+            return (reservation['status']?.toString() ?? '') == 'arrive';
+          }).length;
+          setState(() {
+            _pendingGuestsCount = pendingCount;
+            _arrivedGuestsCount = arrivedCount;
+          });
+        })
+        .catchError((e) {
+          debugPrint("Pending guests fetch error: $e");
+        });
+
+    http
+        .get(Uri.parse('$baseUrl/api/dashboard/predictions?days=30'))
+        .then((aiResp) {
+          if (!mounted || aiResp.statusCode != 200) return;
+          final aiData = json.decode(aiResp.body);
+          if (aiData['status'] == 'success') {
+            setState(() {
+              _aiPredictions = aiData['results'] ?? {};
+            });
+          }
+        })
+        .catchError((e) {
+          debugPrint("Predictions fetch error: $e");
+        });
   }
 
   void _useFallbackData(String message) {
@@ -442,9 +462,12 @@ class _StaffDashboardState extends State<StaffDashboard> {
       errorMessage: _errorMessage,
       categories: _categories,
       aiPredictions: _aiPredictions,
-      onDashboardTap: () => _launchURL('http://localhost:8000/dashboard'),
-      onReservationsTap: () =>
-          Navigator.push(context, _softRoute(const ReservationsListPage())),
+      pendingGuestsCount: _pendingGuestsCount,
+      arrivedGuestsCount: _arrivedGuestsCount,
+      onReservationsTap: () => Navigator.push(
+        context,
+        _softRoute(ReservationsListPage(userName: widget.userName)),
+      ),
       onDateTap: () async {
         var d = await showDatePicker(
           context: context,
@@ -484,6 +507,10 @@ class _StaffDashboardState extends State<StaffDashboard> {
           : _MobileReceptionDrawer(
               role: widget.role,
               userName: widget.userName,
+              onDashboardTap: () {
+                Navigator.pop(context);
+                _launchURL('http://localhost:8000/dashboard');
+              },
               onManageStaff: () {
                 Navigator.pop(context);
                 Navigator.push(context, _softRoute(const AdminUsersPage()));
@@ -517,6 +544,8 @@ class _StaffDashboardState extends State<StaffDashboard> {
                     context,
                     _softRoute(const AdminUsersPage()),
                   ),
+                  onDashboardTap: () =>
+                      _launchURL('http://localhost:8000/dashboard'),
                   onLogout: () async {
                     await SessionService().clear();
                     if (!context.mounted) return;
@@ -548,12 +577,14 @@ class _MobileReceptionDrawer extends StatelessWidget {
   const _MobileReceptionDrawer({
     required this.role,
     required this.userName,
+    required this.onDashboardTap,
     required this.onManageStaff,
     required this.onLogout,
   });
 
   final String role;
   final String userName;
+  final VoidCallback onDashboardTap;
   final VoidCallback onManageStaff;
   final Future<void> Function() onLogout;
 
@@ -582,12 +613,18 @@ class _MobileReceptionDrawer extends StatelessWidget {
               ),
             ),
           ),
-          if (role == 'admin')
+          if (role == 'admin') ...[
             ListTile(
               leading: const Icon(Icons.manage_accounts),
               title: const Text('Gérer le Staff'),
               onTap: onManageStaff,
             ),
+            ListTile(
+              leading: const Icon(Icons.analytics_outlined),
+              title: const Text('Manager'),
+              onTap: onDashboardTap,
+            ),
+          ],
           ListTile(
             leading: const Icon(Icons.logout, color: Colors.red),
             title: const Text(
@@ -606,12 +643,14 @@ class _FrostedSideNav extends StatelessWidget {
   const _FrostedSideNav({
     required this.role,
     required this.userName,
+    required this.onDashboardTap,
     required this.onManageStaff,
     required this.onLogout,
   });
 
   final String role;
   final String userName;
+  final VoidCallback onDashboardTap;
   final VoidCallback onManageStaff;
   final Future<void> Function() onLogout;
 
@@ -691,6 +730,12 @@ class _FrostedSideNav extends StatelessWidget {
                     icon: Icons.manage_accounts_outlined,
                     label: 'Staff',
                     onTap: onManageStaff,
+                  ),
+                  const SizedBox(height: 10),
+                  _SideNavButton(
+                    icon: Icons.analytics_outlined,
+                    label: 'Manager',
+                    onTap: onDashboardTap,
                   ),
                 ],
                 const Spacer(),
@@ -811,7 +856,8 @@ class _ReceptionDashboardContent extends StatelessWidget {
     required this.errorMessage,
     required this.categories,
     required this.aiPredictions,
-    required this.onDashboardTap,
+    required this.pendingGuestsCount,
+    required this.arrivedGuestsCount,
     required this.onReservationsTap,
     required this.onDateTap,
     required this.onRetry,
@@ -824,7 +870,8 @@ class _ReceptionDashboardContent extends StatelessWidget {
   final String errorMessage;
   final List<dynamic> categories;
   final Map<String, dynamic> aiPredictions;
-  final VoidCallback onDashboardTap;
+  final int pendingGuestsCount;
+  final int arrivedGuestsCount;
   final VoidCallback onReservationsTap;
   final VoidCallback onDateTap;
   final VoidCallback onRetry;
@@ -866,12 +913,6 @@ class _ReceptionDashboardContent extends StatelessWidget {
                   ],
                 ),
               ),
-              if (role == 'admin')
-                _SoftActionButton(
-                  icon: Icons.analytics_outlined,
-                  label: 'Manager',
-                  onTap: onDashboardTap,
-                ),
               _SoftActionButton(
                 icon: Icons.list_alt,
                 label: 'Réservations',
@@ -881,6 +922,16 @@ class _ReceptionDashboardContent extends StatelessWidget {
                 icon: Icons.calendar_today_outlined,
                 label: selectedDate.toIso8601String().substring(0, 10),
                 onTap: onDateTap,
+              ),
+              _KpiChip(
+                icon: Icons.hourglass_bottom,
+                label: 'En attente',
+                value: pendingGuestsCount.toString(),
+              ),
+              _KpiChip(
+                icon: Icons.how_to_reg_outlined,
+                label: 'Arrivé',
+                value: arrivedGuestsCount.toString(),
               ),
             ],
           ),
@@ -991,6 +1042,59 @@ class _ReceptionDashboardContent extends StatelessWidget {
   }
 }
 
+class _KpiChip extends StatelessWidget {
+  const _KpiChip({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.88)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 18, color: _primaryDark),
+          const SizedBox(width: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  color: _muted,
+                ),
+              ),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w900,
+                  color: _ink,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _SoftActionButton extends StatelessWidget {
   const _SoftActionButton({
     required this.icon,
@@ -1021,6 +1125,70 @@ class _SoftActionButton extends StatelessWidget {
   }
 }
 
+class _QuantitySelector extends StatelessWidget {
+  const _QuantitySelector({
+    required this.icon,
+    required this.label,
+    required this.unitPrice,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final IconData icon;
+  final String label;
+  final int unitPrice;
+  final int value;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        border: Border.all(color: _border),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: _primaryDark),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+                Text(
+                  '${formatPrice(unitPrice)} Ar / unité',
+                  style: const TextStyle(color: _muted, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            onPressed: value <= 0 ? null : () => onChanged(value - 1),
+            icon: const Icon(Icons.remove_circle_outline),
+          ),
+          SizedBox(
+            width: 32,
+            child: Text(
+              value.toString(),
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontWeight: FontWeight.w900),
+            ),
+          ),
+          IconButton(
+            onPressed: () => onChanged(value + 1),
+            icon: const Icon(Icons.add_circle_outline),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class NewBookingPage extends StatefulWidget {
   final String userName;
   const NewBookingPage({super.key, required this.userName});
@@ -1037,6 +1205,8 @@ class _NewBookingPageState extends State<NewBookingPage> {
   List<dynamic> _allAvailableRooms = [];
   Map<String, dynamic> _aiPredictions = {};
   final List<dynamic> _selectedRooms = [];
+  int _extraBeds = 0;
+  int _extraMattresses = 0;
   bool _loadingRooms = false;
   bool _isBookingCom = false;
 
@@ -1125,6 +1295,8 @@ class _NewBookingPageState extends State<NewBookingPage> {
           'room_prices': _selectedRooms
               .map((r) => {'id': r['id'], 'price': _getSuggestedPrice(r)})
               .toList(),
+          'extra_beds': _extraBeds,
+          'extra_mattresses': _extraMattresses,
           'source': _isBookingCom
               ? 'Booking'
               : (_phoneController.text.trim().isNotEmpty ? 'Appel' : 'Mail'),
@@ -1183,9 +1355,7 @@ class _NewBookingPageState extends State<NewBookingPage> {
         orElse: () => null,
       );
       if (prediction != null) {
-        return prediction['adjusted_price_ariary'] ??
-            prediction['suggested_price_ariary'] ??
-            fixedPrice;
+        return fixedPrice;
       }
     }
 
@@ -1198,9 +1368,7 @@ class _NewBookingPageState extends State<NewBookingPage> {
           orElse: () => null,
         );
         if (prediction != null) {
-          return prediction['adjusted_price_ariary'] ??
-              prediction['suggested_price_ariary'] ??
-              fixedPrice;
+          return fixedPrice;
         }
       }
     }
@@ -1222,6 +1390,7 @@ class _NewBookingPageState extends State<NewBookingPage> {
     for (var room in _selectedRooms) {
       total += _getSuggestedPrice(room) * nights;
     }
+    total += (_extraBeds * 50000) + (_extraMattresses * 30000);
     return total;
   }
 
@@ -1335,6 +1504,23 @@ class _NewBookingPageState extends State<NewBookingPage> {
                       }
                     },
                   ),
+                  const SizedBox(height: 12),
+                  _QuantitySelector(
+                    icon: Icons.bed_outlined,
+                    label: 'Lit supplémentaire',
+                    unitPrice: 50000,
+                    value: _extraBeds,
+                    onChanged: (value) => setState(() => _extraBeds = value),
+                  ),
+                  const SizedBox(height: 10),
+                  _QuantitySelector(
+                    icon: Icons.airline_seat_individual_suite_outlined,
+                    label: 'Matelas supplémentaire',
+                    unitPrice: 30000,
+                    value: _extraMattresses,
+                    onChanged: (value) =>
+                        setState(() => _extraMattresses = value),
+                  ),
                   const SizedBox(height: 20),
                   Container(
                     padding: const EdgeInsets.all(12),
@@ -1415,12 +1601,13 @@ class _NewBookingPageState extends State<NewBookingPage> {
                           final isSelected = _selectedRooms.any(
                             (r) => r['id'] == room['id'],
                           );
-                          int finalPrice = _getSuggestedPrice(room);
-
                           String roomLabel =
                               'Chambre ${room['room_number']} — ${room['type']} (${room['model']})';
                           final fixedPrice = _getFixedPrice(room);
                           final isFixedPrice = room['is_fixed_price'] == true;
+                          final aiPrice = _isBookingCom
+                              ? 162500
+                              : _getSuggestedPrice(room);
 
                           return CheckboxListTile(
                             title: Text(
@@ -1442,17 +1629,16 @@ class _NewBookingPageState extends State<NewBookingPage> {
                                   Text(
                                     'Prix fixe : ${formatPrice(fixedPrice)} Ar / nuit',
                                     style: const TextStyle(
-                                      color: _muted,
-                                      fontWeight: FontWeight.w700,
+                                      color: _primaryDark,
+                                      fontWeight: FontWeight.w900,
                                     ),
                                   ),
                                   Text(
-                                    'Prix ajusté : ${formatPrice(finalPrice)} Ar / nuit${isFixedPrice ? ' (non ajustable)' : ''}',
+                                    'Prix ajusté (IA) : ${formatPrice(aiPrice)} Ar / nuit${isFixedPrice ? ' (non ajustable)' : ''}',
                                     style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      color: _isBookingCom
-                                          ? Colors.indigo
-                                          : _primaryDark,
+                                      fontWeight: FontWeight.w600,
+                                      color: _muted,
+                                      fontStyle: FontStyle.italic,
                                     ),
                                   ),
                                 ],

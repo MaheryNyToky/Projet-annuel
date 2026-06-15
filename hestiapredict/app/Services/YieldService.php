@@ -21,6 +21,7 @@ class YieldService
         $roomCapacities = $roomsInfo->mapWithKeys(fn ($info) => [$info['identifier'] => $info['capacity']])->all();
         $fixedPriceFlags = $roomsInfo->mapWithKeys(fn ($info) => [$info['identifier'] => $info['is_fixed_price']])->all();
         $roomMetadata = $roomsInfo->mapWithKeys(fn ($info) => [$info['identifier'] => $info])->all();
+        $occupancyIndex = $this->availabilityService->occupancyIndexForPeriod($startDate, $days);
 
         try {
             $response = (new Client([
@@ -39,13 +40,13 @@ class YieldService
             $data = json_decode($response->getBody()->getContents(), true);
 
             return [
-                ...$this->alignAiPrices($data, $basePrices, $fixedPriceFlags, $roomMetadata, $days, $startDate),
+                ...$this->alignAiPrices($data, $basePrices, $fixedPriceFlags, $roomMetadata, $days, $startDate, $occupancyIndex),
                 'mode' => 'ai',
                 'ai_available' => true,
                 'is_fallback' => false,
             ];
         } catch (\Throwable) {
-            return $this->fallbackPredictions($days, $startDate);
+            return $this->fallbackPredictions($days, $startDate, $occupancyIndex);
         }
     }
 
@@ -71,6 +72,56 @@ class YieldService
             'daily_ca_pending' => (int) $dailyCaPending,
             'total_ca' => (int) $totalCA,
             'period' => 'Depuis le début de l\'année jusqu\'au ' . date('d/m/Y', strtotime($date)),
+        ];
+    }
+
+    public function aiRevenueSummary(int $days, string $startDate): array
+    {
+        $predictions = $this->predictions($days, $startDate);
+        $priceIndex = $this->aiPriceIndex($predictions['results'] ?? []);
+        $rows = [];
+
+        for ($i = 0; $i < $days; $i++) {
+            $date = date('Y-m-d', strtotime("$startDate +$i days"));
+            $reservations = Reservation::query()
+                ->where('check_in_date', '<=', $date)
+                ->where('check_out_date', '>', $date)
+                ->whereIn('status', Reservation::ACTIVE_STATUSES)
+                ->with('rooms')
+                ->get();
+
+            $fixedRevenue = 0;
+            $aiRevenue = 0;
+            $roomCount = 0;
+
+            foreach ($reservations as $reservation) {
+                foreach ($reservation->rooms as $room) {
+                    $roomCount++;
+                    $fixedRevenue += (int) $room->base_price_ariary;
+                    $aiRevenue += (int) ($priceIndex[$date][$room->identifier] ?? $room->base_price_ariary);
+                }
+            }
+
+            $rows[] = [
+                'date' => $date,
+                'room_count' => $roomCount,
+                'fixed_revenue_ariary' => $fixedRevenue,
+                'ai_revenue_ariary' => $aiRevenue,
+                'delta_ariary' => $aiRevenue - $fixedRevenue,
+            ];
+        }
+
+        return [
+            'status' => 'success',
+            'mode' => $predictions['mode'] ?? 'unknown',
+            'ai_available' => (bool) ($predictions['ai_available'] ?? false),
+            'is_fallback' => (bool) ($predictions['is_fallback'] ?? false),
+            'rows' => $rows,
+            'totals' => [
+                'fixed_revenue_ariary' => array_sum(array_column($rows, 'fixed_revenue_ariary')),
+                'ai_revenue_ariary' => array_sum(array_column($rows, 'ai_revenue_ariary')),
+                'delta_ariary' => array_sum(array_column($rows, 'delta_ariary')),
+            ],
         ];
     }
 
@@ -124,8 +175,11 @@ class YieldService
         array $roomMetadata,
         int $days,
         string $startDate,
+        ?array $occupancyIndex = null,
     ): array
     {
+        $occupancyIndex ??= $this->availabilityService->occupancyIndexForPeriod($startDate, $days);
+
         if (!isset($data['results'])) {
             return $data;
         }
@@ -150,7 +204,7 @@ class YieldService
                 $adjustedPrice = $basePrice;
 
                 if (!$isFixedPrice) {
-                    $realGlobalOccupancy = $this->availabilityService->occupiedRoomCount($prediction['date']);
+                    $realGlobalOccupancy = $occupancyIndex['global'][$prediction['date']] ?? 0;
                     $realMultiplier = $this->realTimeMultiplier($realGlobalOccupancy);
                     $finalMultiplier = min(1.15, max($realMultiplier, $maxMultiplier));
                     $adjustedPrice = (int) round($basePrice * $finalMultiplier, -3);
@@ -176,7 +230,7 @@ class YieldService
             $data['results'][$category] = [];
             for ($i = 0; $i < $days; $i++) {
                 $date = date('Y-m-d', strtotime("$startDate +$i days"));
-                $categoryBookedCount = $this->availabilityService->categoryOccupiedCount($date, $room['type'], $room['model']);
+                $categoryBookedCount = $occupancyIndex['by_category'][$date][$category] ?? 0;
 
                 $data['results'][$category][] = [
                     'date' => $date,
@@ -193,8 +247,9 @@ class YieldService
         return $data;
     }
 
-    private function fallbackPredictions(int $days, string $startDate): array
+    private function fallbackPredictions(int $days, string $startDate, ?array $occupancyIndex = null): array
     {
+        $occupancyIndex ??= $this->availabilityService->occupancyIndexForPeriod($startDate, $days);
         $results = [];
 
         foreach ($this->roomsInfo() as $room) {
@@ -203,7 +258,7 @@ class YieldService
 
             for ($i = 0; $i < $days; $i++) {
                 $date = date('Y-m-d', strtotime("$startDate +$i days"));
-                $categoryBookedCount = $this->availabilityService->categoryOccupiedCount($date, $room['type'], $room['model']);
+                $categoryBookedCount = $occupancyIndex['by_category'][$date][$key] ?? 0;
 
                 $results[$key][] = [
                     'date' => $date,
@@ -225,6 +280,30 @@ class YieldService
             'message' => 'Mode sécurité : IA indisponible, prix de base appliqués',
             'results' => $results,
         ];
+    }
+
+    private function aiPriceIndex(array $results): array
+    {
+        $index = [];
+
+        foreach ($results as $category => $predictions) {
+            foreach ($predictions as $prediction) {
+                $date = $prediction['date'] ?? null;
+                if (!$date) {
+                    continue;
+                }
+
+                $index[$date][$category] = (int) (
+                    $prediction['adjusted_price_ariary']
+                    ?? $prediction['suggested_price_ariary']
+                    ?? $prediction['fixed_price_ariary']
+                    ?? $prediction['base_price']
+                    ?? 0
+                );
+            }
+        }
+
+        return $index;
     }
 
     private function realTimeMultiplier(int $globalOccupancy): float

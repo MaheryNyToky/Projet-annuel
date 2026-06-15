@@ -20,6 +20,7 @@ class _CheckInPageState extends State<CheckInPage> {
   final ImagePicker _picker = ImagePicker();
 
   String _fullName = '';
+  String _contact = '';
   DateTime? _dateOfBirth;
   String _idType = 'CIN';
   String _idNumber = '';
@@ -28,10 +29,8 @@ class _CheckInPageState extends State<CheckInPage> {
 
   final List<String> _idTypes = ['CIN', 'Passeport', 'Permis'];
 
-  Future<void> _pickImage() async {
-    final XFile? pickedFile = await _picker.pickImage(
-      source: ImageSource.camera,
-    );
+  Future<void> _pickImage(ImageSource source) async {
+    final XFile? pickedFile = await _picker.pickImage(source: source);
     if (pickedFile != null) {
       setState(() {
         _idPhoto = File(pickedFile.path);
@@ -76,6 +75,7 @@ class _CheckInPageState extends State<CheckInPage> {
       request.headers['Accept'] = 'application/json';
 
       request.fields['full_name'] = _fullName;
+      request.fields['customer_phone'] = _contact;
       request.fields['date_of_birth'] = _dateOfBirth!.toIso8601String().split(
         'T',
       )[0];
@@ -118,6 +118,7 @@ class _CheckInPageState extends State<CheckInPage> {
   void initState() {
     super.initState();
     _fullName = widget.reservation.clientName;
+    _contact = widget.reservation.phone;
   }
 
   @override
@@ -139,12 +140,22 @@ class _CheckInPageState extends State<CheckInPage> {
               TextFormField(
                 initialValue: _fullName,
                 decoration: const InputDecoration(
-                  labelText: 'Nom Complet',
+                  labelText: 'Nom et prénom',
                   border: OutlineInputBorder(),
                 ),
                 validator: (val) =>
                     val == null || val.isEmpty ? 'Le nom est requis' : null,
                 onSaved: (val) => _fullName = val!,
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                initialValue: _contact,
+                decoration: const InputDecoration(
+                  labelText: 'Contact',
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: TextInputType.phone,
+                onSaved: (val) => _contact = val?.trim() ?? '',
               ),
               const SizedBox(height: 16),
               ListTile(
@@ -183,10 +194,24 @@ class _CheckInPageState extends State<CheckInPage> {
                 onSaved: (val) => _idNumber = val!,
               ),
               const SizedBox(height: 24),
-              ElevatedButton.icon(
-                onPressed: _pickImage,
-                icon: const Icon(Icons.camera_alt),
-                label: const Text('Capturer Pièce d\'Identité (Optionnel)'),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () => _pickImage(ImageSource.camera),
+                      icon: const Icon(Icons.camera_alt),
+                      label: const Text('Photo'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _pickImage(ImageSource.gallery),
+                      icon: const Icon(Icons.upload_file),
+                      label: const Text('Importer'),
+                    ),
+                  ),
+                ],
               ),
               if (_idPhoto != null) ...[
                 const SizedBox(height: 8),

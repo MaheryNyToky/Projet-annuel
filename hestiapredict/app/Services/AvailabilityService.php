@@ -4,6 +4,8 @@ namespace App\Services;
 
 use App\Models\Reservation;
 use App\Models\Room;
+use Carbon\Carbon;
+use Carbon\CarbonPeriod;
 use Illuminate\Support\Collection;
 
 class AvailabilityService
@@ -88,5 +90,46 @@ class AvailabilityService
                     ->where('reservations.check_out_date', '>', $date);
             })
             ->count();
+    }
+
+    public function occupancyIndexForPeriod(
+        string $startDate,
+        int $days,
+        array $statuses = Reservation::ACTIVE_STATUSES,
+    ): array {
+        $start = Carbon::parse($startDate)->startOfDay();
+        $end = $start->copy()->addDays(max(1, $days));
+        $index = [];
+        $global = [];
+
+        Reservation::query()
+            ->with('rooms')
+            ->whereIn('status', $statuses)
+            ->where('check_in_date', '<', $end->toDateString())
+            ->where('check_out_date', '>', $start->toDateString())
+            ->get()
+            ->each(function (Reservation $reservation) use ($start, $end, &$index, &$global) {
+                $periodStart = Carbon::parse($reservation->check_in_date)->max($start);
+                $periodEnd = Carbon::parse($reservation->check_out_date)->min($end);
+
+                if ($periodStart->gte($periodEnd)) {
+                    return;
+                }
+
+                foreach (CarbonPeriod::create($periodStart, $periodEnd->copy()->subDay()) as $date) {
+                    $dateKey = $date->toDateString();
+
+                    foreach ($reservation->rooms as $room) {
+                        $identifier = $room->identifier;
+                        $index[$dateKey][$identifier] = ($index[$dateKey][$identifier] ?? 0) + 1;
+                        $global[$dateKey] = ($global[$dateKey] ?? 0) + 1;
+                    }
+                }
+            });
+
+        return [
+            'by_category' => $index,
+            'global' => $global,
+        ];
     }
 }

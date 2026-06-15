@@ -21,13 +21,19 @@ class Reservation extends Model
         'check_in_date',
         'check_out_date',
         'status',
+        'payment_status',
+        'cancelled_by_name',
+        'cancelled_at',
         'user_id',
+        'extra_beds',
+        'extra_mattresses',
     ];
 
     protected $casts = [
         'is_booking_com' => 'boolean',
         'check_in_date' => 'date:Y-m-d',
         'check_out_date' => 'date:Y-m-d',
+        'cancelled_at' => 'datetime',
     ];
 
     public function user(): BelongsTo

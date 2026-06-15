@@ -16,6 +16,7 @@ return new class extends Migration
             $table->foreignId('invoice_id')->constrained()->onDelete('cascade');
             $table->integer('amount_ariary');
             $table->string('payment_method'); // cash, card, mobile_money, deposit, check
+            $table->string('reference')->nullable();
             $table->timestamps();
         });
     }

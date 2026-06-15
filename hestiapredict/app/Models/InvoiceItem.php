@@ -18,6 +18,11 @@ class InvoiceItem extends Model
         'quantity',
     ];
 
+    protected $casts = [
+        'amount_ariary' => 'integer',
+        'quantity' => 'integer',
+    ];
+
     public function invoice(): BelongsTo
     {
         return $this->belongsTo(Invoice::class);

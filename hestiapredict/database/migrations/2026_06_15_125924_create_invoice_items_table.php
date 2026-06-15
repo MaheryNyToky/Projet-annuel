@@ -15,7 +15,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('invoice_id')->constrained()->onDelete('cascade');
             $table->string('description');
-            $table->string('type'); // room, tax, extra
+            $table->string('type'); // room, tax, extra, discount
             $table->integer('amount_ariary');
             $table->integer('quantity')->default(1);
             $table->timestamps();

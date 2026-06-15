@@ -47,6 +47,8 @@ pkill -f "uvicorn main:app" 2>/dev/null || true
 pkill -f "php artisan serve" 2>/dev/null || true
 pkill -f "flutter_tools.*web-server" 2>/dev/null || true
 pkill -f "flutter run -d web-server" 2>/dev/null || true
+pkill -f "php -S localhost:8080" 2>/dev/null || true
+pkill -f "php -S 127.0.0.1:8080" 2>/dev/null || true
 
 # 1. Moteur IA
 echo "[AI] Lancement sur le port 8001..."
@@ -57,37 +59,42 @@ AI_PYTHON="$(find_ai_python)" || {
     exit 1
 }
 nohup env MPLCONFIGDIR="$LOG_DIR/matplotlib" XDG_CACHE_HOME="$LOG_DIR/cache" WATCHFILES_FORCE_POLLING=true \
-    "$AI_PYTHON" -m uvicorn main:app --host localhost --port 8001 > "$LOG_DIR/ai.log" 2>&1 &
+    "$AI_PYTHON" -m uvicorn main:app --host 127.0.0.1 --port 8001 > "$LOG_DIR/ai.log" 2>&1 &
 AI_PID=$!
-disown "$AI_PID" 2>/dev/null || true
-wait_for_url "AI" "http://localhost:8001/health" "$LOG_DIR/ai.log" 30
+wait_for_url "AI" "http://127.0.0.1:8001/health" "$LOG_DIR/ai.log" 30
 
 # 2. Backend Laravel
 echo "[Laravel] Lancement sur le port 8000..."
 cd "$PROJECT_ROOT/hestiapredict"
-nohup env AI_ENGINE_URL="http://localhost:8001" php artisan serve --host=localhost --port=8000 > "$LOG_DIR/laravel.log" 2>&1 &
+echo "[Laravel] Migration de la base..."
+php artisan migrate --force > "$LOG_DIR/migrate.log" 2>&1
+nohup env AI_ENGINE_URL="http://127.0.0.1:8001" php artisan serve --host=127.0.0.1 --port=8000 > "$LOG_DIR/laravel.log" 2>&1 &
 LARAVEL_PID=$!
-disown "$LARAVEL_PID" 2>/dev/null || true
-wait_for_url "Laravel" "http://localhost:8000/api/live-availability" "$LOG_DIR/laravel.log" 30
+wait_for_url "Laravel" "http://127.0.0.1:8000/api/live-availability" "$LOG_DIR/laravel.log" 30
 
-# 3. Serveur Flutter Web permettant d'actualiser Safari pendant le développement.
-echo "[Flutter] Lancement sur le port 8080 (prêt pour Safari)..."
+# 3. Build Flutter Web puis serveur statique stable.
+# On désactive le mode PWA pour éviter qu'un ancien service worker
+# garde une version obsolète de l'application dans le navigateur.
+echo "[Flutter] Build web..."
 cd "$PROJECT_ROOT/hestia_app"
-# On utilise flutter run -d web-server pour permettre le rechargement au rafraîchissement de la page
-nohup flutter run -d web-server --web-port 8080 --web-hostname localhost > "$LOG_DIR/flutter.log" 2>&1 &
+flutter build web --pwa-strategy=none --dart-define=API_BASE_URL=http://127.0.0.1:8000 > "$LOG_DIR/flutter.log" 2>&1
+
+echo "[Flutter] Lancement sur le port 8080 (prêt pour Safari)..."
+cd "$PROJECT_ROOT/hestia_app/build/web"
+nohup php -S 127.0.0.1:8080 >> "$LOG_DIR/flutter.log" 2>&1 &
 FLUTTER_PID=$!
-disown "$FLUTTER_PID" 2>/dev/null || true
-wait_for_url "Flutter" "http://localhost:8080" "$LOG_DIR/flutter.log" 90
+wait_for_url "Flutter" "http://127.0.0.1:8080/index.html" "$LOG_DIR/flutter.log" 90
 
 echo ""
 echo "[OK] Environnement prêt."
 echo "Liens à ouvrir dans Safari :"
-echo "   - App Flutter : http://localhost:8080"
-echo "   - Dashboard Laravel : http://localhost:8000/dashboard"
-echo "   - API IA : http://localhost:8001/docs"
+echo "   - App Flutter : http://127.0.0.1:8080/index.html"
+echo "   - Dashboard Laravel : http://127.0.0.1:8000/dashboard"
+echo "   - API IA : http://127.0.0.1:8001/docs"
 echo ""
 echo "Logs :"
 echo "   - $LOG_DIR/ai.log"
+echo "   - $LOG_DIR/migrate.log"
 echo "   - $LOG_DIR/laravel.log"
 echo "   - $LOG_DIR/flutter.log"
 echo ""
@@ -96,5 +103,4 @@ echo "   - AI : $AI_PID"
 echo "   - Laravel : $LARAVEL_PID"
 echo "   - Flutter : $FLUTTER_PID"
 echo ""
-echo "Note : pour l'app Flutter, attendez 2-3 secondes après une modification avant d'actualiser Safari."
-echo "Arrêt : pkill -f 'uvicorn main:app|php artisan serve|flutter_tools|flutter run -d web-server'"
+echo "Relancez simplement ./dev.sh pour arrêter les anciennes instances et reconstruire."

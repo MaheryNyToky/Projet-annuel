@@ -66,6 +66,8 @@ class HotelManagementController extends Controller
             'room_prices' => 'nullable|array',
             'room_prices.*.id' => 'required_with:room_prices|integer|exists:rooms,id',
             'room_prices.*.price' => 'required_with:room_prices|integer|min:0|max:10000000',
+            'extra_beds' => 'nullable|integer|min:0',
+            'extra_mattresses' => 'nullable|integer|min:0',
             'source' => 'nullable|string|in:Appel,Mail,Booking',
             'receptionist_name' => 'nullable|string|max:120',
         ]);
@@ -84,7 +86,8 @@ class HotelManagementController extends Controller
         $validated = $request->validate([
             'id' => 'nullable|integer',
             'reference' => 'nullable|string|max:40',
-            'status' => 'required|string|in:en_attente,arrive,annule',
+            'status' => 'required|string|in:en_attente,arrive,arrive_paid,arrive_unpaid,annule',
+            'cancelled_by_name' => 'nullable|string|max:120',
         ]);
 
         if (empty($validated['id']) && empty($validated['reference'])) {
@@ -110,6 +113,8 @@ class HotelManagementController extends Controller
             'check_out' => 'required|date|after:check_in',
             'room_ids' => 'required|array|min:1',
             'room_ids.*' => 'integer|distinct|exists:rooms,id',
+            'extra_beds' => 'nullable|integer|min:0',
+            'extra_mattresses' => 'nullable|integer|min:0',
         ]);
 
         if (empty($validated['customer_phone']) && empty($validated['customer_email'])) {
@@ -258,6 +263,18 @@ class HotelManagementController extends Controller
         $date = $validated['date'] ?? now()->toDateString();
 
         return response()->json($this->yieldService->auditDate($date));
+    }
+
+    public function aiRevenueSummary(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'days' => 'nullable|integer|min:1|max:365',
+            'start_date' => 'nullable|date',
+        ]);
+        $days = (int) ($validated['days'] ?? 30);
+        $startDate = $validated['start_date'] ?? now()->toDateString();
+
+        return response()->json($this->yieldService->aiRevenueSummary($days, $startDate));
     }
 
     public function checkGlobalOccupationAndAlert(): void

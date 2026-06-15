@@ -7,6 +7,8 @@ class Reservation {
     required this.checkIn,
     required this.checkOut,
     required this.roomIds,
+    this.extraBeds = 0,
+    this.extraMattresses = 0,
   });
 
   final int id;
@@ -16,6 +18,8 @@ class Reservation {
   final DateTime checkIn;
   final DateTime checkOut;
   final List<int> roomIds;
+  final int extraBeds;
+  final int extraMattresses;
 
   factory Reservation.fromJson(Map<String, dynamic> json) {
     return Reservation(
@@ -29,6 +33,8 @@ class Reservation {
           .map(_asInt)
           .where((id) => id > 0)
           .toList(),
+      extraBeds: _asInt(json['extra_beds'] ?? 0),
+      extraMattresses: _asInt(json['extra_mattresses'] ?? 0),
     );
   }
 
@@ -47,6 +53,8 @@ class Reservation {
     required DateTime checkIn,
     required DateTime checkOut,
     required List<int> roomIds,
+    int extraBeds = 0,
+    int extraMattresses = 0,
   }) {
     return {
       'client_name': clientName,
@@ -55,6 +63,8 @@ class Reservation {
       'check_in': checkIn.toIso8601String().substring(0, 10),
       'check_out': checkOut.toIso8601String().substring(0, 10),
       'room_ids': roomIds,
+      'extra_beds': extraBeds,
+      'extra_mattresses': extraMattresses,
     };
   }
 

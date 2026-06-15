@@ -8,6 +8,7 @@ use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 class BookingService
@@ -34,7 +35,10 @@ class BookingService
                 'check_in_date' => $data['check_in'],
                 'check_out_date' => $data['check_out'],
                 'status' => 'en_attente',
+                'payment_status' => 'unbilled',
                 'user_id' => $userId,
+                'extra_beds' => (int) ($data['extra_beds'] ?? 0),
+                'extra_mattresses' => (int) ($data['extra_mattresses'] ?? 0),
             ]);
 
             $providedPrices = collect($data['room_prices'] ?? [])
@@ -71,7 +75,28 @@ class BookingService
             return null;
         }
 
-        $reservation->update(['status' => $data['status']]);
+        $status = $data['status'];
+        $paymentStatus = $data['payment_status'] ?? null;
+
+        if (in_array($status, ['arrive_paid', 'arrive_unpaid'], true)) {
+            $paymentStatus = $status === 'arrive_paid' ? 'paid' : 'unpaid';
+            $status = 'arrive';
+        }
+
+        $updateData = ['status' => $status];
+        if ($status === 'annule') {
+            if (Schema::hasColumn('reservations', 'cancelled_by_name')) {
+                $updateData['cancelled_by_name'] = $data['cancelled_by_name'] ?? null;
+            }
+            if (Schema::hasColumn('reservations', 'cancelled_at')) {
+                $updateData['cancelled_at'] = now();
+            }
+        }
+        if ($paymentStatus !== null) {
+            $updateData['payment_status'] = $paymentStatus;
+        }
+
+        $reservation->update($updateData);
 
         return $reservation;
     }
@@ -123,6 +148,8 @@ class BookingService
                 'customer_email' => $data['customer_email'] ?? null,
                 'check_in_date' => $data['check_in'],
                 'check_out_date' => $data['check_out'],
+                'extra_beds' => (int) ($data['extra_beds'] ?? 0),
+                'extra_mattresses' => (int) ($data['extra_mattresses'] ?? 0),
             ]);
 
             $syncData = Room::query()
@@ -149,7 +176,7 @@ class BookingService
     public function reservationsForDate(?string $date): Collection
     {
         return Reservation::query()
-            ->with(['rooms', 'user'])
+            ->with(['rooms', 'user', 'invoice.payments'])
             ->where('status', '!=', 'annule')
             ->when($date && $date !== 'all', function ($query) use ($date) {
                 $query->where('check_in_date', '<=', $date)
@@ -163,7 +190,7 @@ class BookingService
     public function activeReservations(string $date): Collection
     {
         return Reservation::query()
-            ->with('rooms')
+            ->with(['rooms', 'user', 'invoice.payments'])
             ->where('check_in_date', '<=', $date)
             ->where('check_out_date', '>', $date)
             ->get()
@@ -177,9 +204,13 @@ class BookingService
                     'check_in' => $formatted['check_in'],
                     'check_out' => $formatted['check_out'],
                     'status' => $formatted['status'],
+                    'payment_status' => $formatted['payment_status'],
                     'source' => $formatted['source'],
                     'total_price' => $formatted['total_price'],
                     'fixed_total_price' => $formatted['fixed_total_price'],
+                    'paid_amount_ariary' => $formatted['paid_amount_ariary'],
+                    'cancelled_by_name' => $formatted['cancelled_by_name'],
+                    'latest_payment_processed_by' => $formatted['latest_payment_processed_by'],
                     'is_booking' => $formatted['is_booking'],
                     'rooms' => $formatted['rooms'],
                     'room_numbers' => $formatted['room_numbers'],
@@ -217,8 +248,23 @@ class BookingService
         $checkIn = Carbon::parse($reservation->check_in_date);
         $checkOut = Carbon::parse($reservation->check_out_date);
         $nights = max(1, $checkIn->diffInDays($checkOut));
-        $totalPrice = $rooms->sum(fn (Room $room) => (int) $room->pivot->price_snapshot_ariary) * $nights;
-        $fixedTotalPrice = $rooms->sum(fn (Room $room) => (int) $room->base_price_ariary) * $nights;
+
+        $extraBeds = $reservation->extra_beds ?? 0;
+        $extraMattresses = $reservation->extra_mattresses ?? 0;
+        $extrasPrice = ($extraBeds * 50000) + ($extraMattresses * 30000);
+
+        $totalPrice = ($rooms->sum(fn (Room $room) => (int) $room->pivot->price_snapshot_ariary) * $nights) + $extrasPrice;
+        $fixedTotalPrice = ($rooms->sum(fn (Room $room) => (int) $room->base_price_ariary) * $nights) + $extrasPrice;
+        $invoice = $reservation->invoice;
+        $paymentStatus = $reservation->payment_status ?? 'unbilled';
+        $latestPayment = $invoice?->relationLoaded('payments')
+            ? $invoice->payments->sortByDesc('created_at')->first()
+            : $invoice?->payments()->orderByDesc('created_at')->first();
+        if ($invoice && $paymentStatus === 'unbilled') {
+            $paymentStatus = ((int) $invoice->balance_amount_ariary <= 0)
+                ? 'paid'
+                : (((int) $invoice->paid_amount_ariary > 0) ? 'partial' : 'unpaid');
+        }
 
         return [
             'id' => $reservation->id,
@@ -231,15 +277,23 @@ class BookingService
             'check_in' => $checkIn->toDateString(),
             'check_out' => $checkOut->toDateString(),
             'status' => $reservation->status,
+            'payment_status' => $paymentStatus,
             'source' => $reservation->source,
+            'cancelled_by_name' => $reservation->cancelled_by_name,
+            'cancelled_at' => optional($reservation->cancelled_at)->toDateTimeString(),
             'rooms' => $groupedRooms,
             'room_ids' => $rooms->pluck('id')->values(),
             'room_details' => $roomDetails,
             'room_numbers' => $roomNumbers,
+            'extra_beds' => $extraBeds,
+            'extra_mattresses' => $extraMattresses,
             'total_price' => (int) $totalPrice,
             'fixed_total_price' => (int) $fixedTotalPrice,
+            'paid_amount_ariary' => (int) ($invoice?->paid_amount_ariary ?? 0),
             'is_booking' => $reservation->source === 'Booking',
             'receptionist' => $reservation->user?->name ?? 'N/A',
+            'payment_status' => $paymentStatus,
+            'latest_payment_processed_by' => $latestPayment?->processed_by_name,
             'created_at' => optional($reservation->created_at)->toDateTimeString(),
         ];
     }

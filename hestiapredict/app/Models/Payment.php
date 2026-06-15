@@ -14,6 +14,12 @@ class Payment extends Model
         'invoice_id',
         'amount_ariary',
         'payment_method',
+        'reference',
+        'processed_by_name',
+    ];
+
+    protected $casts = [
+        'amount_ariary' => 'integer',
     ];
 
     public function invoice(): BelongsTo
