@@ -28,6 +28,18 @@ class ApiClient {
     );
   }
 
+  Future<http.Response> putJson(String path, Map<String, dynamic> body) {
+    return http.put(
+      uri(path),
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode(body),
+    );
+  }
+
+  Future<http.Response> updateReservation(int id, Map<String, dynamic> body) {
+    return putJson('/api/reservations/$id', body);
+  }
+
   Future<http.Response> delete(String path) {
     return http.delete(uri(path));
   }

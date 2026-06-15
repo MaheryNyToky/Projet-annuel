@@ -19,13 +19,19 @@ class AvailabilityService
             ->pluck('id');
     }
 
-    public function busyRoomIdsForPeriod(string $checkIn, string $checkOut, array $statuses = Reservation::ACTIVE_STATUSES): Collection
+    public function busyRoomIdsForPeriod(
+        string $checkIn,
+        string $checkOut,
+        array $statuses = Reservation::ACTIVE_STATUSES,
+        ?int $excludeReservationId = null,
+    ): Collection
     {
         return Room::query()
-            ->whereHas('reservations', function ($query) use ($checkIn, $checkOut, $statuses) {
+            ->whereHas('reservations', function ($query) use ($checkIn, $checkOut, $statuses, $excludeReservationId) {
                 $query->whereIn('reservations.status', $statuses)
                     ->where('reservations.check_in_date', '<', $checkOut)
-                    ->where('reservations.check_out_date', '>', $checkIn);
+                    ->where('reservations.check_out_date', '>', $checkIn)
+                    ->when($excludeReservationId, fn ($query) => $query->where('reservations.id', '!=', $excludeReservationId));
             })
             ->pluck('id');
     }
@@ -56,9 +62,9 @@ class AvailabilityService
             ->all();
     }
 
-    public function availableRooms(string $checkIn, string $checkOut): Collection
+    public function availableRooms(string $checkIn, string $checkOut, ?int $excludeReservationId = null): Collection
     {
-        $busyRoomIds = $this->busyRoomIdsForPeriod($checkIn, $checkOut);
+        $busyRoomIds = $this->busyRoomIdsForPeriod($checkIn, $checkOut, Reservation::ACTIVE_STATUSES, $excludeReservationId);
 
         return Room::query()
             ->whereNotIn('id', $busyRoomIds)

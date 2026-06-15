@@ -38,12 +38,17 @@ class HotelManagementController extends Controller
     {
         $validated = $request->validate([
             'check_in' => 'required|date',
-            'check_out' => 'required|date|after:check_in',
+            'check_out' => 'required|date|after:check_in|after_or_equal:today',
+            'exclude_reservation_id' => 'nullable|integer|exists:reservations,id',
         ]);
 
         return response()->json(
             RoomResource::collection(
-                $this->availabilityService->availableRooms($validated['check_in'], $validated['check_out'])
+                $this->availabilityService->availableRooms(
+                    $validated['check_in'],
+                    $validated['check_out'],
+                    $validated['exclude_reservation_id'] ?? null,
+                )
             )->resolve()
         );
     }
@@ -93,6 +98,37 @@ class HotelManagementController extends Controller
         }
 
         return response()->json(['status' => 'success']);
+    }
+
+    public function updateReservation(Request $request, int $id): JsonResponse
+    {
+        $validated = $request->validate([
+            'client_name' => 'required|string|max:120',
+            'customer_phone' => 'nullable|string|max:40',
+            'customer_email' => 'nullable|email|max:190',
+            'check_in' => 'required|date',
+            'check_out' => 'required|date|after:check_in',
+            'room_ids' => 'required|array|min:1',
+            'room_ids.*' => 'integer|distinct|exists:rooms,id',
+        ]);
+
+        if (empty($validated['customer_phone']) && empty($validated['customer_email'])) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Veuillez renseigner au moins un téléphone ou un email.',
+            ], 422);
+        }
+
+        $reservation = $this->bookingService->updateReservation($id, $validated);
+
+        if (!$reservation) {
+            return response()->json(['status' => 'error', 'message' => 'Réservation non trouvée'], 404);
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'reservation' => $this->bookingService->formatReservation($reservation),
+        ]);
     }
 
     public function getAllReservations(Request $request): JsonResponse

@@ -1,0 +1,66 @@
+class Reservation {
+  const Reservation({
+    required this.id,
+    required this.clientName,
+    required this.phone,
+    required this.email,
+    required this.checkIn,
+    required this.checkOut,
+    required this.roomIds,
+  });
+
+  final int id;
+  final String clientName;
+  final String phone;
+  final String email;
+  final DateTime checkIn;
+  final DateTime checkOut;
+  final List<int> roomIds;
+
+  factory Reservation.fromJson(Map<String, dynamic> json) {
+    return Reservation(
+      id: _asInt(json['id']),
+      clientName: (json['client_name'] ?? '').toString(),
+      phone: json['phone'] == 'N/A' ? '' : (json['phone'] ?? '').toString(),
+      email: json['email'] == 'N/A' ? '' : (json['email'] ?? '').toString(),
+      checkIn: DateTime.parse(json['check_in'].toString()),
+      checkOut: DateTime.parse(json['check_out'].toString()),
+      roomIds: (json['room_ids'] as List<dynamic>? ?? [])
+          .map(_asInt)
+          .where((id) => id > 0)
+          .toList(),
+    );
+  }
+
+  bool get isEditable {
+    final today = DateTime.now();
+    final todayOnly = DateTime(today.year, today.month, today.day);
+    final checkOutOnly = DateTime(checkOut.year, checkOut.month, checkOut.day);
+    return checkOutOnly.isAfter(todayOnly) ||
+        checkOutOnly.isAtSameMomentAs(todayOnly);
+  }
+
+  Map<String, dynamic> toUpdateJson({
+    required String clientName,
+    required String phone,
+    required String email,
+    required DateTime checkIn,
+    required DateTime checkOut,
+    required List<int> roomIds,
+  }) {
+    return {
+      'client_name': clientName,
+      'customer_phone': phone,
+      'customer_email': email,
+      'check_in': checkIn.toIso8601String().substring(0, 10),
+      'check_out': checkOut.toIso8601String().substring(0, 10),
+      'room_ids': roomIds,
+    };
+  }
+
+  static int _asInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+}

@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\HotelManagementController;
+use App\Http\Controllers\PMSController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/dashboard/predictions', [HotelManagementController::class, 'getAiPredictionsAndPricing']);
@@ -10,7 +11,16 @@ Route::get('/available-rooms', [HotelManagementController::class, 'getAvailableR
 Route::post('/bookings', [HotelManagementController::class, 'saveBooking']);
 Route::post('/bookings/update-status', [HotelManagementController::class, 'updateBookingStatus']);
 Route::get('/reservations/all', [HotelManagementController::class, 'getAllReservations']);
+Route::put('/reservations/{id}', [HotelManagementController::class, 'updateReservation']);
+Route::patch('/reservations/{id}', [HotelManagementController::class, 'updateReservation']);
 Route::get('/active-reservations', [HotelManagementController::class, 'getActiveReservations']);
+
+// PMS Endpoints
+Route::post('/reservations/{id}/checkin', [PMSController::class, 'checkIn']);
+Route::get('/reservations/{id}/folio', [PMSController::class, 'getFolio']);
+Route::post('/invoices/{id}/items', [PMSController::class, 'addInvoiceItem']);
+Route::post('/invoices/{id}/payments', [PMSController::class, 'addPayment']);
+Route::post('/invoices/{id}/generate-pdf', [PMSController::class, 'generatePdf']);
 
 Route::get('/users', [HotelManagementController::class, 'getUsers']);
 Route::post('/users', [HotelManagementController::class, 'createUser']);

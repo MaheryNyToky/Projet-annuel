@@ -42,6 +42,16 @@ class Reservation extends Model
             ->withTimestamps();
     }
 
+    public function guest()
+    {
+        return $this->hasOne(Guest::class);
+    }
+
+    public function invoice()
+    {
+        return $this->hasOne(Invoice::class);
+    }
+
     public function scopeActiveDuring($query, string $date)
     {
         return $query

@@ -8,6 +8,7 @@ use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class BookingService
 {
@@ -75,6 +76,76 @@ class BookingService
         return $reservation;
     }
 
+    public function updateReservation(int $id, array $data): ?Reservation
+    {
+        $reservation = Reservation::query()
+            ->with('rooms')
+            ->find($id);
+
+        if (!$reservation) {
+            return null;
+        }
+
+        if (Carbon::parse($reservation->check_out_date)->lt(now()->startOfDay())) {
+            throw ValidationException::withMessages([
+                'reservation' => 'Seules les réservations non terminées peuvent être modifiées.',
+            ]);
+        }
+
+        $checkIn = $data['check_in'];
+        $checkOut = $data['check_out'];
+        $roomIds = collect($data['room_ids'])->map(fn ($roomId) => (int) $roomId)->values();
+        $conflictingRoomNumbers = Room::query()
+            ->whereIn('id', $roomIds)
+            ->whereHas('reservations', function ($query) use ($reservation, $checkIn, $checkOut) {
+                $query->where('reservations.id', '!=', $reservation->id)
+                    ->whereIn('reservations.status', Reservation::ACTIVE_STATUSES)
+                    ->where('reservations.check_in_date', '<', $checkOut)
+                    ->where('reservations.check_out_date', '>', $checkIn);
+            })
+            ->orderBy('room_number')
+            ->pluck('room_number');
+
+        if ($conflictingRoomNumbers->isNotEmpty()) {
+            throw ValidationException::withMessages([
+                'room_ids' => 'Chambre(s) déjà occupée(s) : ' . $conflictingRoomNumbers->implode(', '),
+            ]);
+        }
+
+        return DB::transaction(function () use ($reservation, $data, $roomIds) {
+            $previousPrices = $reservation->rooms
+                ->mapWithKeys(fn (Room $room) => [$room->id => (int) $room->pivot->price_snapshot_ariary]);
+
+            $reservation->update([
+                'client_name' => $data['client_name'],
+                'client_phone' => $data['customer_phone'] ?? '000000000',
+                'customer_phone' => $data['customer_phone'] ?? null,
+                'customer_email' => $data['customer_email'] ?? null,
+                'check_in_date' => $data['check_in'],
+                'check_out_date' => $data['check_out'],
+            ]);
+
+            $syncData = Room::query()
+                ->whereIn('id', $roomIds)
+                ->get()
+                ->mapWithKeys(function (Room $room) use ($previousPrices, $reservation) {
+                    $price = $previousPrices->get(
+                        $room->id,
+                        $room->is_fixed_price
+                            ? $room->base_price_ariary
+                            : ($reservation->source === 'Booking' ? 162500 : $room->base_price_ariary)
+                    );
+
+                    return [$room->id => ['price_snapshot_ariary' => $price]];
+                })
+                ->all();
+
+            $reservation->rooms()->sync($syncData);
+
+            return $reservation->refresh()->load(['rooms', 'user']);
+        });
+    }
+
     public function reservationsForDate(?string $date): Collection
     {
         return Reservation::query()
@@ -129,6 +200,19 @@ class BookingService
             ->pluck('room_number')
             ->values()
             ->implode(', ');
+        $roomDetails = $rooms
+            ->sortBy('room_number', SORT_NATURAL)
+            ->map(fn (Room $room) => [
+                'id' => $room->id,
+                'room_number' => $room->room_number,
+                'type' => $room->type,
+                'model' => $room->model,
+                'base_price_ariary' => $room->base_price_ariary,
+                'fixed_price_ariary' => $room->base_price_ariary,
+                'is_fixed_price' => $room->is_fixed_price,
+                'price_snapshot_ariary' => (int) $room->pivot->price_snapshot_ariary,
+            ])
+            ->values();
 
         $checkIn = Carbon::parse($reservation->check_in_date);
         $checkOut = Carbon::parse($reservation->check_out_date);
@@ -149,6 +233,8 @@ class BookingService
             'status' => $reservation->status,
             'source' => $reservation->source,
             'rooms' => $groupedRooms,
+            'room_ids' => $rooms->pluck('id')->values(),
+            'room_details' => $roomDetails,
             'room_numbers' => $roomNumbers,
             'total_price' => (int) $totalPrice,
             'fixed_total_price' => (int) $fixedTotalPrice,
