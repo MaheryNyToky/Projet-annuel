@@ -5,8 +5,10 @@ namespace App\Http\Controllers;
 use App\Models\Guest;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\ReservationAudit;
 use App\Models\Payment;
 use App\Models\Reservation;
+use App\Support\PhoneNumber;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -31,30 +33,29 @@ class PMSController extends Controller
             'customer_phone' => 'nullable|string|max:50',
             'phone_number' => 'nullable|string|max:50',
             'date_of_birth' => 'required|date',
+            'sex' => 'required|in:Homme,Femme,Autre',
             'id_type' => 'required|in:CIN,Passeport,Permis',
             'id_number' => 'required|string|max:100',
             'id_document_number' => 'nullable|string|max:100',
+            'passport_valid_from' => 'nullable|date|required_if:id_type,Passeport|before_or_equal:passport_valid_until',
+            'passport_valid_until' => 'nullable|date|required_if:id_type,Passeport|after_or_equal:passport_valid_from',
             'loyalty_count' => 'nullable|integer|min:0',
             'first_name' => 'nullable|string|max:120',
             'last_name' => 'nullable|string|max:120',
-            'id_photo' => 'nullable|image|max:5120',
+            'checked_in_by_name' => 'nullable|string|max:120',
+            'checked_in_by_role' => 'nullable|string|in:admin,receptionist',
         ]);
 
         $reservation = Reservation::with(['rooms', 'guest', 'invoice.items', 'invoice.payments'])->findOrFail($id);
+        $result = DB::transaction(function () use ($reservation, $validated) {
+            $baseLoyaltyCount = (int) ($validated['loyalty_count'] ?? $reservation->guest?->loyalty_count ?? 0);
+            $customerPhone = PhoneNumber::normalize($validated['customer_phone'] ?? $reservation->customer_phone ?? $reservation->client_phone ?? null);
+            $phoneNumber = PhoneNumber::normalize($validated['phone_number'] ?? $customerPhone ?? null);
 
-        $photoPath = $reservation->guest?->id_photo_path;
-        if ($request->hasFile('id_photo')) {
-            if ($photoPath) {
-                Storage::disk('local')->delete($photoPath);
-            }
-            $photoPath = $request->file('id_photo')->store('id_photos', 'local');
-        }
-
-        $result = DB::transaction(function () use ($reservation, $validated, $photoPath) {
             $reservation->update([
                 'client_name' => $validated['full_name'],
-                'customer_phone' => $validated['customer_phone'] ?? $reservation->customer_phone,
-                'client_phone' => $validated['customer_phone'] ?? $reservation->client_phone,
+                'customer_phone' => $customerPhone,
+                'client_phone' => $customerPhone ?? $reservation->client_phone,
                 'status' => 'arrive',
             ]);
 
@@ -63,19 +64,30 @@ class PMSController extends Controller
                 [
                     'first_name' => $validated['first_name'] ?? null,
                     'last_name' => $validated['last_name'] ?? null,
-                    'phone_number' => $validated['phone_number']
-                        ?? $validated['customer_phone']
-                        ?? $reservation->customer_phone
-                        ?? $reservation->client_phone,
+                    'phone_number' => $phoneNumber,
                     'id_document_number' => $validated['id_document_number'] ?? $validated['id_number'],
-                    'loyalty_count' => (int) ($validated['loyalty_count'] ?? $reservation->guest?->loyalty_count ?? 0),
+                    'loyalty_count' => $baseLoyaltyCount,
                     'full_name' => $validated['full_name'],
                     'date_of_birth' => $validated['date_of_birth'],
+                    'sex' => $validated['sex'],
+                    'passport_valid_from' => $validated['passport_valid_from'] ?? null,
+                    'passport_valid_until' => $validated['passport_valid_until'] ?? null,
                     'id_type' => $validated['id_type'],
                     'id_number' => $validated['id_number'],
-                    'id_photo_path' => $photoPath,
                 ],
             );
+
+            ReservationAudit::create([
+                'reservation_id' => $reservation->id,
+                'action' => 'check_in',
+                'actor_name' => $validated['checked_in_by_name'] ?? null,
+                'actor_role' => $validated['checked_in_by_role'] ?? null,
+                'details' => [
+                    'guest_name' => $validated['full_name'],
+                    'phone_number' => $phoneNumber,
+                    'id_type' => $validated['id_type'],
+                ],
+            ]);
 
             return [
                 'guest' => $guest,
@@ -131,13 +143,15 @@ class PMSController extends Controller
     {
         $validated = $request->validate([
             'amount_ariary' => 'required|integer|min:1',
-            'payment_method' => 'required|string|in:Espèces,Carte Bancaire,Mobile Money,Chèque,Virement,Acompte',
+            'payment_method' => 'required|string|in:Espèces,Carte Bancaire,Mobile Money,Chèque,Virement',
             'reference' => 'nullable|string|max:120',
             'processed_by_name' => 'nullable|string|max:120',
+            'processed_by_role' => 'nullable|string|in:admin,receptionist',
         ]);
 
         $result = DB::transaction(function () use ($validated, $id) {
             $invoice = Invoice::with(['payments', 'reservation.guest'])->lockForUpdate()->findOrFail($id);
+            $previousStatus = $invoice->status;
 
             if ($invoice->status === 'finalized') {
                 throw ValidationException::withMessages([
@@ -162,25 +176,112 @@ class PMSController extends Controller
                 'invoice_id' => $invoice->id,
                 'amount_ariary' => $validated['amount_ariary'],
                 'payment_method' => $validated['payment_method'],
+                'payment_context' => 'payment',
                 'reference' => $validated['reference'] ?? null,
                 'processed_by_name' => $validated['processed_by_name'] ?? null,
+                'processed_by_role' => $validated['processed_by_role'] ?? null,
             ]);
 
-            $guest = $invoice->reservation?->guest;
-            if ($guest) {
-                $guest->increment('loyalty_count');
-            }
+            ReservationAudit::create([
+                'reservation_id' => $invoice->reservation_id,
+                'action' => 'payment',
+                'actor_name' => $validated['processed_by_name'] ?? null,
+                'actor_role' => $validated['processed_by_role'] ?? null,
+                'details' => [
+                    'amount_ariary' => (int) $validated['amount_ariary'],
+                    'payment_method' => $validated['payment_method'],
+                    'reference' => $validated['reference'] ?? null,
+                ],
+            ]);
 
-            $this->updatePaymentStatus($invoice->refresh());
+            $invoice = $this->syncInvoiceAfterPayment($invoice);
+
+            if ($previousStatus !== 'paid' && $invoice->status === 'paid') {
+                $guest = $invoice->reservation?->guest;
+                if ($guest) {
+                    $guest->increment('loyalty_count');
+                }
+            }
 
             return [
                 'payment' => $payment,
-                'invoice' => $this->folioPayload($invoice->refresh()),
+                'invoice' => $this->folioPayload($invoice),
             ];
         });
 
         return response()->json([
             'message' => 'Paiement enregistré',
+            ...$result,
+        ]);
+    }
+
+    public function addDeposit(Request $request, int $id): JsonResponse
+    {
+        $validated = $request->validate([
+            'amount_ariary' => 'required|integer|min:1',
+            'payment_method' => 'required|string|in:Espèces,Carte Bancaire,Mobile Money,Chèque,Virement',
+            'reference' => 'nullable|string|max:120',
+            'processed_by_name' => 'nullable|string|max:120',
+            'processed_by_role' => 'nullable|string|in:admin,receptionist',
+        ]);
+
+        $result = DB::transaction(function () use ($validated, $id) {
+            $reservation = Reservation::with(['invoice.payments', 'guest'])->lockForUpdate()->findOrFail($id);
+            $invoice = $reservation->invoice ?: $this->ensureOpenFolio($reservation);
+            $previousStatus = $invoice->status;
+
+            $remainingAmount = max(0, (int) $invoice->balance_amount_ariary);
+            if ($remainingAmount <= 0) {
+                throw ValidationException::withMessages([
+                    'amount_ariary' => 'Cette facture est déjà soldée.',
+                ]);
+            }
+
+            if ((int) $validated['amount_ariary'] > $remainingAmount) {
+                throw ValidationException::withMessages([
+                    'amount_ariary' => 'Le paiement dépasse le reste à payer.',
+                ]);
+            }
+
+            $payment = Payment::create([
+                'invoice_id' => $invoice->id,
+                'amount_ariary' => $validated['amount_ariary'],
+                'payment_method' => $validated['payment_method'],
+                'payment_context' => 'deposit',
+                'reference' => $validated['reference'] ?? null,
+                'processed_by_name' => $validated['processed_by_name'] ?? null,
+                'processed_by_role' => $validated['processed_by_role'] ?? null,
+            ]);
+
+            ReservationAudit::create([
+                'reservation_id' => $reservation->id,
+                'action' => 'deposit',
+                'actor_name' => $validated['processed_by_name'] ?? null,
+                'actor_role' => $validated['processed_by_role'] ?? null,
+                'details' => [
+                    'amount_ariary' => (int) $validated['amount_ariary'],
+                    'payment_method' => $validated['payment_method'],
+                    'reference' => $validated['reference'] ?? null,
+                ],
+            ]);
+
+            $invoice = $this->syncInvoiceAfterPayment($invoice);
+
+            if ($previousStatus !== 'paid' && $invoice->status === 'paid') {
+                $guest = $invoice->reservation?->guest;
+                if ($guest) {
+                    $guest->increment('loyalty_count');
+                }
+            }
+
+            return [
+                'payment' => $payment,
+                'invoice' => $this->folioPayload($invoice),
+            ];
+        });
+
+        return response()->json([
+            'message' => 'Acompte enregistré',
             ...$result,
         ]);
     }
@@ -191,25 +292,36 @@ class PMSController extends Controller
             'pricing_mode' => 'nullable|in:fixed,ai',
             'discount_mode' => 'nullable|in:percent,amount',
             'discount_value' => 'nullable|numeric|min:0',
+            'actor_role' => 'nullable|string|in:admin,receptionist',
+            'document_type' => 'nullable|in:facture,proforma',
         ]);
+        $documentType = $validated['document_type'] ?? 'facture';
+
+        if (
+            ($validated['discount_mode'] ?? null) !== null
+            || ($validated['discount_value'] ?? null) !== null
+        ) {
+            if (($validated['actor_role'] ?? 'receptionist') !== 'admin') {
+                return response()->json([
+                    'message' => 'Seul un administrateur peut appliquer une remise.',
+                ], 403);
+            }
+        }
 
         $invoice = Invoice::with(['items', 'payments', 'reservation.guest', 'reservation.rooms'])->findOrFail($id);
 
-        DB::transaction(function () use ($invoice, $validated) {
+        DB::transaction(function () use ($invoice, $validated, $documentType) {
             $invoice->refresh();
             if (!$invoice->invoice_number) {
                 $invoice->invoice_number = $this->nextInvoiceNumber();
                 $invoice->save();
             }
 
-            $this->applyInvoiceDiscount($invoice, $validated['discount_mode'] ?? null, $validated['discount_value'] ?? null);
-            $pdf = Pdf::loadHTML($this->invoiceHtml($invoice->refresh()->load(['items', 'payments', 'reservation.guest', 'reservation.rooms'])));
-            $path = "invoices/{$invoice->invoice_number}.pdf";
-            Storage::disk('local')->put($path, $pdf->output());
-
             $invoice->update([
-                'pdf_path' => $path,
+                'document_type' => $documentType,
             ]);
+            $this->applyInvoiceDiscount($invoice, $validated['discount_mode'] ?? null, $validated['discount_value'] ?? null);
+            $this->ensureInvoicePdf($invoice->refresh()->load(['items', 'payments', 'reservation.guest', 'reservation.rooms']), $documentType);
         });
 
         return response()->json([
@@ -375,10 +487,12 @@ class PMSController extends Controller
             'reservation_id' => $invoice->reservation_id,
             'invoice_number' => $invoice->invoice_number,
             'status' => $invoice->status,
+            'document_type' => $invoice->document_type ?? 'facture',
             'total_amount_ariary' => (int) $invoice->total_amount_ariary,
             'discount_mode' => $invoice->discount_mode,
             'discount_value' => $invoice->discount_value,
             'discount_amount_ariary' => (int) $invoice->discount_amount_ariary,
+            'deposit_amount_ariary' => (int) $invoice->deposit_amount_ariary,
             'paid_amount_ariary' => $invoice->paid_amount_ariary,
             'balance_amount_ariary' => $invoice->balance_amount_ariary,
             'pdf_url' => $invoice->pdf_path ? url("/api/invoices/{$invoice->id}/pdf") : null,
@@ -398,24 +512,42 @@ class PMSController extends Controller
                 'id' => $payment->id,
                 'amount_ariary' => (int) $payment->amount_ariary,
                 'payment_method' => $payment->payment_method,
+                'payment_context' => $payment->payment_context ?? 'payment',
                 'reference' => $payment->reference,
                 'processed_by_name' => $payment->processed_by_name,
+                'processed_by_role' => $payment->processed_by_role,
                 'created_at' => optional($payment->created_at)->toDateTimeString(),
             ])->values(),
         ];
     }
 
-    private function invoiceHtml(Invoice $invoice): string
+    private function invoiceHtml(Invoice $invoice, string $documentType = 'facture'): string
     {
         $guestName = e($invoice->reservation->guest->full_name ?? $invoice->reservation->client_name);
+        $contactParts = array_filter([
+            $invoice->reservation->customer_phone ?: $invoice->reservation->client_phone ?: null,
+            $invoice->reservation->customer_email ?: null,
+        ], fn ($value) => filled($value) && $value !== 'N/A');
+        $contactLine = $contactParts ? e(implode(' | ', $contactParts)) : '';
         $invoiceNumber = e($invoice->invoice_number);
         $checkIn = $invoice->reservation->check_in_date->format('d/m/Y');
         $checkOut = $invoice->reservation->check_out_date->format('d/m/Y');
         $paidAmount = (int) $invoice->paid_amount_ariary;
         $balanceAmount = (int) $invoice->balance_amount_ariary;
+        $depositAmount = (int) $invoice->deposit_amount_ariary;
         $visibleItems = $invoice->items->where('type', '!=', 'tax');
         $subtotal = (int) $visibleItems->sum(fn (InvoiceItem $item) => $item->amount_ariary * $item->quantity);
         $discountAmount = (int) $invoice->discount_amount_ariary;
+        $showDiscount = $discountAmount > 0;
+        $isProforma = $documentType === 'proforma';
+        $documentLabel = $isProforma ? 'Facture proforma' : 'Facture de séjour';
+        $amountLabel = $isProforma ? 'facture proforma' : 'facture';
+        $logoDataUri = $this->hotelLogoDataUri();
+        $accentColor = '#d10f0f';
+        $accentSoft = $isProforma ? '#fff7f7' : '#fff1f1';
+        $accentText = '#111111';
+        $badgeBg = '#f6e2e2';
+        $badgeText = '#9f1d1d';
         $paymentStatus = $balanceAmount > 0 ? 'Non soldée' : 'Payée';
         $paymentNotice = $balanceAmount > 0
             ? 'Facture pas encore payée intégralement'
@@ -436,17 +568,20 @@ class PMSController extends Controller
         foreach ($invoice->payments as $payment) {
             $reference = $payment->reference ? e($payment->reference) : '-';
             $processedBy = $payment->processed_by_name ? e($payment->processed_by_name) : '-';
+            $processedRole = $payment->processed_by_role ? e($payment->processed_by_role) : '-';
+            $paymentContext = ($payment->payment_context ?? 'payment') === 'deposit' ? 'Acompte' : 'Paiement';
             $paymentRows .= '<tr>'
                 . '<td>' . optional($payment->created_at)->format('d/m/Y H:i') . '</td>'
                 . '<td>' . e($payment->payment_method) . '</td>'
-                . '<td>' . $processedBy . '</td>'
+                . '<td>' . $paymentContext . '</td>'
+                . '<td>' . $processedBy . ' (' . $processedRole . ')</td>'
                 . '<td>' . $reference . '</td>'
                 . '<td>' . number_format($payment->amount_ariary, 0, ',', ' ') . '</td>'
                 . '</tr>';
         }
 
         if ($paymentRows === '') {
-            $paymentRows = '<tr><td colspan="5">Aucun paiement enregistré</td></tr>';
+            $paymentRows = '<tr><td colspan="6">Aucun paiement enregistré</td></tr>';
         }
 
         return "
@@ -455,22 +590,24 @@ class PMSController extends Controller
                 <meta charset='utf-8'>
                 <style>
                     body { font-family: DejaVu Sans, sans-serif; color: #1f2937; font-size: 12px; margin: 28px; }
-                    .topbar { display: table; width: 100%; border-bottom: 2px solid #0f766e; padding-bottom: 14px; margin-bottom: 18px; }
+                    .document-ribbon { margin-bottom: 12px; padding: 9px 12px; background: {$accentSoft}; border: 1px solid {$accentColor}; color: {$accentText}; border-radius: 10px; text-align: center; font-size: 11px; font-weight: bold; letter-spacing: 0.8px; }
+                    .topbar { display: table; width: 100%; border-bottom: 2px solid {$accentColor}; padding-bottom: 14px; margin-bottom: 18px; }
                     .brand { display: table-cell; width: 62%; vertical-align: top; }
-                    .brand h1 { margin: 0; color: #134e4a; font-size: 22px; letter-spacing: 0.4px; }
+                    .brand-logo { width: 155px; height: auto; display: block; margin-bottom: 4px; }
+                    .brand-fallback { margin: 0; color: {$accentText}; font-size: 22px; letter-spacing: 0.4px; font-weight: bold; }
                     .brand .subtitle { color: #64748b; font-size: 11px; margin-top: 4px; }
                     .meta { display: table-cell; width: 38%; vertical-align: top; text-align: right; }
-                    .pill { display: inline-block; padding: 6px 10px; border-radius: 999px; background: #dcfce7; color: #166534; font-weight: bold; font-size: 11px; }
+                    .pill { display: inline-block; padding: 6px 10px; border-radius: 999px; background: {$badgeBg}; color: {$badgeText}; font-weight: bold; font-size: 11px; }
                     .pill.unpaid { background: #fef3c7; color: #92400e; }
                     .info-grid { width: 100%; margin-bottom: 18px; }
                     .info-grid td { vertical-align: top; padding: 0; border: 0; }
-                    .box { border: 1px solid #dbe4ea; border-radius: 8px; padding: 12px 14px; }
+                    .box { border: 1px solid #dbe4ea; border-radius: 8px; padding: 12px 14px; background: #fff; }
                     .box-title { color: #64748b; font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 6px; }
                     table.lines { width: 100%; border-collapse: collapse; margin-top: 4px; }
                     table.lines th, table.lines td { border-bottom: 1px solid #dbe4ea; padding: 9px 8px; text-align: left; }
                     table.lines th { background-color: #f8fafc; color: #0f172a; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; }
                     table.lines td.num, table.lines th.num { text-align: right; }
-                    .section-title { margin: 18px 0 8px; color: #134e4a; font-size: 13px; font-weight: bold; }
+                    .section-title { margin: 18px 0 8px; color: {$accentText}; font-size: 13px; font-weight: bold; }
                     .summary-wrap { width: 100%; margin-top: 16px; }
                     .summary { width: 42%; margin-left: auto; border: 1px solid #dbe4ea; border-radius: 10px; padding: 12px 14px; }
                     .summary-row { display: table; width: 100%; margin-bottom: 6px; }
@@ -478,17 +615,22 @@ class PMSController extends Controller
                     .summary-row .value { display: table-cell; text-align: right; }
                     .summary-row.total { margin-top: 8px; padding-top: 8px; border-top: 1px solid #cbd5e1; font-weight: bold; font-size: 13px; color: #0f172a; }
                     .summary-row.discount .value { color: #b91c1c; }
+                    .summary-row.deposit .value { color: #0f766e; }
                     .notice { margin: 12px 0 18px; padding: 10px 12px; border: 1px solid #cbd5e1; background: #f8fafc; color: #334155; border-radius: 8px; }
+                    .deposit-note { margin-top: 8px; color: #0f766e; font-weight: bold; }
                 </style>
             </head>
             <body>
+                " . ($isProforma ? "<div class='document-ribbon'>DOCUMENT PROFORMA - NON VALABLE POUR COMPTABILISATION FINALE</div>" : "") . "
                 <div class='topbar'>
                     <div class='brand'>
-                        <h1>KAMORO HOTEL</h1>
-                        <div class='subtitle'>Facture de séjour</div>
+                        " . ($logoDataUri
+                            ? "<img class='brand-logo' src='{$logoDataUri}' alt='Kamoro Hotel'>"
+                            : "<div class='brand-fallback'>KAMORO HOTEL</div>") . "
+                        <div class='subtitle'>{$documentLabel}</div>
                     </div>
                     <div class='meta'>
-                        <div style='margin-bottom: 8px; font-weight: bold; color: #0f172a;'>Facture n° {$invoiceNumber}</div>
+                        <div style='margin-bottom: 8px; font-weight: bold; color: {$accentText};'>" . ($isProforma ? 'Proforma n° ' : 'Facture n° ') . "{$invoiceNumber}</div>
                         <span class='pill " . ($balanceAmount > 0 ? 'unpaid' : '') . "'>{$paymentStatus}</span>
                     </div>
                 </div>
@@ -499,6 +641,7 @@ class PMSController extends Controller
                             <div class='box'>
                                 <div class='box-title'>Client</div>
                                 <strong>{$guestName}</strong><br>
+                                " . ($contactLine ? "Contact : {$contactLine}<br>" : '') . "
                                 Séjour du {$checkIn} au {$checkOut}
                             </div>
                         </td>
@@ -506,7 +649,7 @@ class PMSController extends Controller
                             <div class='box'>
                                 <div class='box-title'>Récapitulatif</div>
                                 Total prestations: " . number_format($subtotal, 0, ',', ' ') . " Ar<br>
-                                Remise: " . number_format($discountAmount, 0, ',', ' ') . " Ar
+                                " . ($showDiscount ? 'Remise: ' . number_format($discountAmount, 0, ',', ' ') . ' Ar' : '') . "
                             </div>
                         </td>
                     </tr>
@@ -520,7 +663,7 @@ class PMSController extends Controller
                 <div class='section-title'>Paiements</div>
                 <table class='lines'>
                     <thead>
-                        <tr><th>Date</th><th>Méthode</th><th>Traité par</th><th>Référence</th><th class='num'>Montant (Ar)</th></tr>
+                        <tr><th>Date</th><th>Méthode</th><th>Type</th><th>Traité par</th><th>Référence</th><th class='num'>Montant (Ar)</th></tr>
                     </thead>
                     <tbody>{$paymentRows}</tbody>
                 </table>
@@ -530,10 +673,18 @@ class PMSController extends Controller
                             <div class='label'>Sous-total</div>
                             <div class='value'>" . number_format($subtotal, 0, ',', ' ') . " Ar</div>
                         </div>
+                        " . ($depositAmount > 0 ? "
+                        <div class='summary-row deposit'>
+                            <div class='label'>Acompte versé</div>
+                            <div class='value'>- " . number_format($depositAmount, 0, ',', ' ') . " Ar</div>
+                        </div>
+                        " : '') . "
+                        " . ($showDiscount ? "
                         <div class='summary-row discount'>
                             <div class='label'>Remise</div>
                             <div class='value'>- " . number_format($discountAmount, 0, ',', ' ') . " Ar</div>
                         </div>
+                        " : '') . "
                         <div class='summary-row total'>
                             <div class='label'>Total facture</div>
                             <div class='value'>" . number_format($invoice->total_amount_ariary, 0, ',', ' ') . " Ar</div>
@@ -548,9 +699,68 @@ class PMSController extends Controller
                         </div>
                     </div>
                 </div>
+                " . ($depositAmount > 0 ? "<div class='deposit-note'>Acompte déjà versé : " . number_format($depositAmount, 0, ',', ' ') . " Ar</div>" : '') . "
+                <div style='margin-top: 18px; font-weight: bold; text-transform: uppercase;'>
+                    Arrêtée la présente {$amountLabel} à la somme de : " . e($this->amountInWords($invoice->total_amount_ariary)) . " (" . number_format($invoice->total_amount_ariary, 0, ',', ' ') . ") Ariary
+                </div>
             </body>
             </html>
         ";
+    }
+
+    private function amountInWords(int $amount): string
+    {
+        $formatter = new \NumberFormatter('fr_FR', \NumberFormatter::SPELLOUT);
+        $words = $formatter->format($amount) ?: (string) $amount;
+        return mb_strtoupper(trim($words), 'UTF-8');
+    }
+
+    private function hotelLogoDataUri(): ?string
+    {
+        $root = dirname(base_path());
+        $matches = glob($root . DIRECTORY_SEPARATOR . 'Capture*.png');
+        $logoPath = $matches[0] ?? null;
+        if (!$logoPath || !is_file($logoPath)) {
+            return null;
+        }
+
+        $mime = mime_content_type($logoPath) ?: 'image/png';
+        return 'data:' . $mime . ';base64,' . base64_encode(file_get_contents($logoPath));
+    }
+
+    private function ensureInvoicePdf(Invoice $invoice, string $documentType = 'facture'): void
+    {
+        $invoice->refresh();
+        if (!$invoice->invoice_number) {
+            $invoice->invoice_number = $this->nextInvoiceNumber();
+            $invoice->save();
+        }
+
+        $invoice->load(['items', 'payments', 'reservation.guest', 'reservation.rooms']);
+        $pdf = Pdf::loadHTML($this->invoiceHtml($invoice, $documentType));
+        $path = "invoices/{$invoice->invoice_number}.pdf";
+        Storage::disk('local')->put($path, $pdf->output());
+
+        $invoice->update([
+            'document_type' => $documentType,
+            'pdf_path' => $path,
+        ]);
+    }
+
+    private function syncInvoiceAfterPayment(Invoice $invoice): Invoice
+    {
+        $invoice->refresh();
+        $depositAmount = (int) $invoice->payments()->where('payment_context', 'deposit')->sum('amount_ariary');
+
+        $invoice->update([
+            'deposit_amount_ariary' => $depositAmount,
+        ]);
+
+        $this->updatePaymentStatus($invoice->refresh());
+        $invoice = $invoice->refresh()->load('reservation.guest', 'payments');
+        $this->ensureInvoicePdf($invoice, $invoice->document_type ?? 'facture');
+
+        return $invoice->refresh()->load('reservation.guest', 'payments');
     }
 
     private function applyInvoiceDiscount(Invoice $invoice, ?string $mode, mixed $value): void

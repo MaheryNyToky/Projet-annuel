@@ -68,7 +68,12 @@ echo "[Laravel] Lancement sur le port 8000..."
 cd "$PROJECT_ROOT/hestiapredict"
 touch "$PROJECT_ROOT/database.sqlite"
 echo "[Laravel] Migration de la base..."
-php artisan migrate --force > "$LOG_DIR/migrate.log" 2>&1
+if ! php artisan migrate --force > "$LOG_DIR/migrate.log" 2>&1; then
+    echo "[ERREUR] Migration Laravel impossible."
+    echo "[LOG] Dernières lignes du log : $LOG_DIR/migrate.log"
+    tail -n 40 "$LOG_DIR/migrate.log" 2>/dev/null || true
+    exit 1
+fi
 nohup env AI_ENGINE_URL="http://127.0.0.1:8001" php artisan serve --host=127.0.0.1 --port=8000 > "$LOG_DIR/laravel.log" 2>&1 &
 LARAVEL_PID=$!
 wait_for_url "Laravel" "http://127.0.0.1:8000/api/live-availability" "$LOG_DIR/laravel.log" 30
@@ -78,7 +83,12 @@ wait_for_url "Laravel" "http://127.0.0.1:8000/api/live-availability" "$LOG_DIR/l
 # garde une version obsolète de l'application dans le navigateur.
 echo "[Flutter] Build web..."
 cd "$PROJECT_ROOT/hestia_app"
-flutter build web --pwa-strategy=none --dart-define=API_BASE_URL=http://127.0.0.1:8000 > "$LOG_DIR/flutter.log" 2>&1
+if ! flutter build web --pwa-strategy=none --dart-define=API_BASE_URL=http://127.0.0.1:8000 > "$LOG_DIR/flutter.log" 2>&1; then
+    echo "[ERREUR] Build Flutter impossible."
+    echo "[LOG] Dernières lignes du log : $LOG_DIR/flutter.log"
+    tail -n 40 "$LOG_DIR/flutter.log" 2>/dev/null || true
+    exit 1
+fi
 
 echo "[Flutter] Lancement sur le port 8080 (prêt pour Safari)..."
 cd "$PROJECT_ROOT/hestia_app/build/web"

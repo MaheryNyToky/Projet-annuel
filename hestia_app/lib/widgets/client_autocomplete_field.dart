@@ -19,6 +19,7 @@ class ClientAutocompleteField extends StatefulWidget {
     this.hintText,
     this.textInputAction,
     this.enabled = true,
+    this.showLoyalty = false,
   });
 
   final TextEditingController controller;
@@ -30,6 +31,7 @@ class ClientAutocompleteField extends StatefulWidget {
   final FormFieldValidator<String>? validator;
   final TextInputAction? textInputAction;
   final bool enabled;
+  final bool showLoyalty;
   final String Function(ClientProfile client) valueBuilder;
   final ValueChanged<ClientProfile> onSelected;
 
@@ -203,7 +205,7 @@ class _ClientAutocompleteFieldState extends State<ClientAutocompleteField> {
                         [
                           if ((client.phoneNumber ?? '').trim().isNotEmpty)
                             'Tél: ${client.phoneNumber}',
-                          if (client.loyaltyCount > 0)
+                          if (widget.showLoyalty && client.loyaltyCount > 0)
                             'Fidélité: ${client.loyaltyCount} visite(s)',
                         ].join(' • '),
                       ),

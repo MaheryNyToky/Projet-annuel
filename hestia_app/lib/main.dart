@@ -12,6 +12,7 @@ import 'models/client_profile.dart';
 import 'models/app_user.dart';
 import 'screens/admin_users_page.dart';
 import 'screens/reservations_list_page.dart';
+import 'services/client_search_service.dart';
 import 'services/session_service.dart';
 import 'widgets/availability_card.dart';
 import 'widgets/client_autocomplete_field.dart';
@@ -590,7 +591,9 @@ class _StaffDashboardState extends State<StaffDashboard> {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => Navigator.push(
           context,
-          _softRoute(NewBookingPage(userName: widget.userName)),
+          _softRoute(
+            NewBookingPage(userName: widget.userName, role: widget.role),
+          ),
         ).then((_) => _fetchLiveAvailability()),
         label: const Text('Nouvelle réservation'),
         icon: const Icon(Icons.add),
@@ -1217,7 +1220,8 @@ class _QuantitySelector extends StatelessWidget {
 
 class NewBookingPage extends StatefulWidget {
   final String userName;
-  const NewBookingPage({super.key, required this.userName});
+  final String role;
+  const NewBookingPage({super.key, required this.userName, required this.role});
   @override
   State<NewBookingPage> createState() => _NewBookingPageState();
 }
@@ -1226,6 +1230,7 @@ class _NewBookingPageState extends State<NewBookingPage> {
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
   final _emailController = TextEditingController();
+  final ClientSearchService _clientSearchService = ClientSearchService();
   DateTime _checkIn = DateTime.now();
   DateTime _checkOut = DateTime.now().add(const Duration(days: 1));
   List<dynamic> _allAvailableRooms = [];
@@ -1236,15 +1241,22 @@ class _NewBookingPageState extends State<NewBookingPage> {
   bool _loadingRooms = false;
   bool _isBookingCom = false;
   ClientProfile? _selectedClient;
+  Timer? _clientAutofillTimer;
+  bool _suppressClientAutofill = false;
 
   @override
   void initState() {
     super.initState();
+    _nameController.addListener(_handleClientInputChanged);
+    _phoneController.addListener(_handleClientInputChanged);
     _fetchData();
   }
 
   @override
   void dispose() {
+    _clientAutofillTimer?.cancel();
+    _nameController.removeListener(_handleClientInputChanged);
+    _phoneController.removeListener(_handleClientInputChanged);
     _nameController.dispose();
     _phoneController.dispose();
     _emailController.dispose();
@@ -1256,11 +1268,76 @@ class _NewBookingPageState extends State<NewBookingPage> {
   }
 
   void _applyClient(ClientProfile client) {
+    _clientAutofillTimer?.cancel();
+    _suppressClientAutofill = true;
     setState(() {
       _selectedClient = client;
       _nameController.text = client.displayName;
       _phoneController.text = client.phoneNumber?.trim() ?? '';
     });
+    _suppressClientAutofill = false;
+  }
+
+  void _handleClientInputChanged() {
+    if (_suppressClientAutofill) return;
+
+    final query = _phoneController.text.trim().isNotEmpty
+        ? _phoneController.text.trim()
+        : _nameController.text.trim();
+
+    if (query.length < 2) {
+      if (_selectedClient != null) {
+        setState(() => _selectedClient = null);
+      }
+      return;
+    }
+
+    _clientAutofillTimer?.cancel();
+    _clientAutofillTimer = Timer(const Duration(milliseconds: 300), () async {
+      final results = await _clientSearchService.search(query);
+      if (!mounted || results.isEmpty) return;
+
+      final normalizedQuery = _normalizeText(query);
+      final normalizedPhoneQuery = _normalizePhone(query);
+      ClientProfile? match;
+
+      for (final client in results) {
+        final clientName = _normalizeText(client.displayName);
+        final clientPhone = _normalizePhone(client.phoneNumber);
+        final exactNameMatch = clientName == normalizedQuery;
+        final exactPhoneMatch = clientPhone == normalizedPhoneQuery;
+        final prefixNameMatch = clientName.startsWith(normalizedQuery);
+        final prefixPhoneMatch = normalizedPhoneQuery != null &&
+            clientPhone != null &&
+            clientPhone.startsWith(normalizedPhoneQuery);
+        if (exactNameMatch ||
+            exactPhoneMatch ||
+            prefixNameMatch ||
+            prefixPhoneMatch) {
+          match = client;
+          break;
+        }
+      }
+
+      match ??= results.length == 1 ? results.first : null;
+      if (match == null) return;
+
+      final sameClient = _selectedClient?.id == match.id;
+      if (sameClient) return;
+
+      _applyClient(match);
+    });
+  }
+
+  String _normalizeText(String value) {
+    return value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+  }
+
+  String? _normalizePhone(String? value) {
+    final digits = value == null ? '' : value.replaceAll(RegExp(r'\D+'), '');
+    if (digits.isEmpty) return null;
+    if (digits.startsWith('261')) return '0${digits.substring(3)}';
+    return digits;
   }
 
   Future<void> _fetchData() async {
@@ -1473,6 +1550,7 @@ class _NewBookingPageState extends State<NewBookingPage> {
                     textInputAction: TextInputAction.next,
                     valueBuilder: (client) => client.displayName,
                     onSelected: _applyClient,
+                    showLoyalty: widget.role == 'admin',
                   ),
                   const SizedBox(height: 12),
                   ClientAutocompleteField(
@@ -1483,6 +1561,7 @@ class _NewBookingPageState extends State<NewBookingPage> {
                     textInputAction: TextInputAction.next,
                     valueBuilder: (client) => client.phoneNumber?.trim() ?? '',
                     onSelected: _applyClient,
+                    showLoyalty: widget.role == 'admin',
                   ),
                   const SizedBox(height: 12),
                   TextField(
@@ -1495,7 +1574,7 @@ class _NewBookingPageState extends State<NewBookingPage> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  if (_selectedClient != null)
+                  if (_selectedClient != null && widget.role == 'admin')
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(14),
@@ -1512,7 +1591,8 @@ class _NewBookingPageState extends State<NewBookingPage> {
                         ),
                       ),
                     ),
-                  if (_selectedClient != null) const SizedBox(height: 12),
+                  if (_selectedClient != null && widget.role == 'admin')
+                    const SizedBox(height: 12),
                   SwitchListTile(
                     activeThumbColor: _primary,
                     title: const Text(

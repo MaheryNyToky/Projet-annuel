@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Guest;
+use App\Support\PhoneNumber;
 use Illuminate\Support\Str;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -16,7 +17,8 @@ class ClientController extends Controller
         ]);
 
         $term = trim($validated['q']);
-        $normalizedTerm = Str::lower(Str::ascii($term));
+        $normalizedPhone = PhoneNumber::normalize($term);
+        $normalizedTerm = $normalizedPhone ?? Str::lower(Str::ascii($term));
 
         $clients = Guest::query()
             ->with('reservation')
@@ -38,7 +40,7 @@ class ClientController extends Controller
             })
             ->orderByDesc('loyalty_count')
             ->orderByDesc('updated_at')
-            ->limit(20)
+            ->limit(50)
             ->get()
             ->map(fn (Guest $guest) => [
                 'id' => $guest->id,
@@ -47,7 +49,10 @@ class ClientController extends Controller
                 'first_name' => $guest->first_name,
                 'last_name' => $guest->last_name,
                 'phone_number' => $guest->phone_number,
+                'sex' => $guest->sex,
                 'date_of_birth' => optional($guest->date_of_birth)->toDateString(),
+                'passport_valid_from' => optional($guest->passport_valid_from)->toDateString(),
+                'passport_valid_until' => optional($guest->passport_valid_until)->toDateString(),
                 'id_type' => $guest->id_type,
                 'id_number' => $guest->id_number,
                 'id_document_number' => $guest->id_document_number,
@@ -69,10 +74,33 @@ class ClientController extends Controller
                     'source' => $guest->reservation->source,
                 ] : null,
             ])
+            ->unique(fn (array $client) => $this->clientKey($client))
+            ->take(20)
             ->values();
 
         return response()->json([
             'data' => $clients,
         ]);
+    }
+
+    private function clientKey(array $client): string
+    {
+        $fullName = Str::lower(Str::ascii(trim((string) ($client['full_name'] ?? ''))));
+        $documentNumber = Str::lower(Str::ascii(trim((string) ($client['id_document_number'] ?? $client['id_number'] ?? ''))));
+        $phoneNumber = PhoneNumber::normalize($client['phone_number'] ?? null) ?? '';
+
+        if ($fullName !== '' && $phoneNumber !== '') {
+            return 'name-phone:' . $fullName . '|' . $phoneNumber;
+        }
+
+        if ($documentNumber !== '') {
+            return 'doc:' . $documentNumber;
+        }
+
+        if ($fullName !== '') {
+            return 'name:' . $fullName;
+        }
+
+        return 'id:' . (string) ($client['id'] ?? '');
     }
 }

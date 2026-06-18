@@ -15,14 +15,14 @@ use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 
-class DemoClientsSeeder extends Seeder
+class ClientTestDatasetSeeder extends Seeder
 {
     public function run(): void
     {
         $receptionist = User::firstOrCreate(
-            ['email' => 'reception.demo@kamoro.local'],
+            ['email' => 'reception.test@kamoro.local'],
             [
-                'name' => 'Réception Démo',
+                'name' => 'Réception Test',
                 'password' => Hash::make('demo12345'),
                 'role' => 'receptionist',
             ]
@@ -31,7 +31,7 @@ class DemoClientsSeeder extends Seeder
         $room = Room::query()->first();
         if (! $room) {
             $room = Room::create([
-                'room_number' => '900',
+                'room_number' => '901',
                 'type' => 'Chambre Double',
                 'model' => 'Standard',
                 'base_price_ariary' => 110000,
@@ -92,19 +92,56 @@ class DemoClientsSeeder extends Seeder
                 'invoice_total' => 165000,
                 'tax_amount' => 2000,
             ],
+            [
+                'key' => 'saholy-randriamampionona',
+                'full_name' => 'Saholy Randriamampionona',
+                'first_name' => 'Saholy',
+                'last_name' => 'Randriamampionona',
+                'phone_number' => '0340444444',
+                'sex' => 'Femme',
+                'id_type' => 'CIN',
+                'id_number' => 'CIN-774411-02',
+                'id_document_number' => 'CIN-774411-02',
+                'passport_valid_until' => null,
+                'loyalty_count' => 1,
+                'check_in_date' => '2026-05-25',
+                'check_out_date' => '2026-05-26',
+                'invoice_total' => 95000,
+                'tax_amount' => 2000,
+            ],
+            [
+                'key' => 'liva-rakotomalala',
+                'full_name' => 'Liva Rakotomalala',
+                'first_name' => 'Liva',
+                'last_name' => 'Rakotomalala',
+                'phone_number' => '0340555555',
+                'sex' => 'Homme',
+                'id_type' => 'Passeport',
+                'id_number' => 'PP-MG-602881',
+                'id_document_number' => 'PP-MG-602881',
+                'passport_valid_from' => '2027-10-01',
+                'passport_valid_until' => '2028-10-15',
+                'loyalty_count' => 4,
+                'check_in_date' => '2026-05-28',
+                'check_out_date' => '2026-05-30',
+                'invoice_total' => 125000,
+                'tax_amount' => 4000,
+            ],
         ];
 
         foreach ($clients as $client) {
-            $bookingReference = 'DEMO-' . strtoupper($client['key']);
+            $bookingReference = 'TEST-' . strtoupper($client['key']);
             if (Reservation::where('booking_reference', $bookingReference)->exists()) {
                 continue;
             }
 
             DB::transaction(function () use ($client, $bookingReference, $receptionist, $room): void {
+                $phone = PhoneNumber::normalize($client['phone_number']);
+
                 $reservation = Reservation::create([
                     'client_name' => $client['full_name'],
-                    'client_phone' => PhoneNumber::normalize($client['phone_number']),
-                    'customer_phone' => PhoneNumber::normalize($client['phone_number']),
+                    'client_phone' => $phone,
+                    'customer_phone' => $phone,
                     'customer_email' => strtolower(str_replace(' ', '.', $client['full_name'])) . '@demo.local',
                     'booking_reference' => $bookingReference,
                     'is_booking_com' => false,
@@ -126,7 +163,7 @@ class DemoClientsSeeder extends Seeder
                     'reservation_id' => $reservation->id,
                     'first_name' => $client['first_name'],
                     'last_name' => $client['last_name'],
-                    'phone_number' => PhoneNumber::normalize($client['phone_number']),
+                    'phone_number' => $phone,
                     'sex' => $client['sex'],
                     'passport_valid_from' => $client['passport_valid_from'] ?? null,
                     'passport_valid_until' => $client['passport_valid_until'],
@@ -141,7 +178,7 @@ class DemoClientsSeeder extends Seeder
 
                 $invoice = Invoice::create([
                     'reservation_id' => $reservation->id,
-                    'invoice_number' => 'FACT-DEMO-' . strtoupper($client['key']),
+                    'invoice_number' => 'FACT-TEST-' . strtoupper($client['key']),
                     'total_amount_ariary' => $client['invoice_total'],
                     'tax_amount_ariary' => $client['tax_amount'],
                     'discount_mode' => null,
@@ -173,7 +210,7 @@ class DemoClientsSeeder extends Seeder
                     'invoice_id' => $invoice->id,
                     'amount_ariary' => $client['invoice_total'],
                     'payment_method' => 'Espèces',
-                    'reference' => 'PAY-' . strtoupper($client['key']),
+                    'reference' => 'PAY-TEST-' . strtoupper($client['key']),
                     'processed_by_name' => $receptionist->name,
                 ]);
             });

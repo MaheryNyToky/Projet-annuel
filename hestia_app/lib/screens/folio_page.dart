@@ -39,6 +39,7 @@ class _FolioPageState extends State<FolioPage> {
   Map<String, dynamic>? _folio;
   bool _isLoading = true;
   bool _isBusy = false;
+  String _documentType = 'facture';
 
   int get _reservationId => _asInt(widget.reservation['id']);
   int get _invoiceId => _asInt(_folio?['id']);
@@ -46,7 +47,7 @@ class _FolioPageState extends State<FolioPage> {
   bool get _hasPdf => (_folio?['pdf_url'] ?? '').toString().isNotEmpty;
   bool get _canAccess =>
       widget.role == 'admin' ||
-      widget.reservation['status']?.toString() == 'arrive';
+      widget.reservation['status']?.toString() != 'annule';
 
   @override
   void initState() {
@@ -69,9 +70,10 @@ class _FolioPageState extends State<FolioPage> {
       );
       if (!mounted) return;
       if (response.statusCode == 200) {
-        setState(
-          () => _folio = Map<String, dynamic>.from(json.decode(response.body)),
-        );
+        setState(() {
+          _folio = Map<String, dynamic>.from(json.decode(response.body));
+          _documentType = (_folio?['document_type'] ?? 'facture').toString();
+        });
       } else {
         _showMessage('Impossible de charger le folio.', isError: true);
       }
@@ -100,18 +102,24 @@ class _FolioPageState extends State<FolioPage> {
     await _postJson('/api/invoices/$_invoiceId/payments', {
       ...result,
       'processed_by_name': widget.userName,
+      'processed_by_role': widget.role,
     }, successMessage: 'Paiement enregistré.');
   }
 
   Future<void> _generatePdf() async {
     final discountText = _discountController.text.trim();
     final discountValue = int.tryParse(discountText) ?? 0;
-    final payload = <String, dynamic>{'pricing_mode': widget.pricingMode};
+    final payload = <String, dynamic>{
+      'pricing_mode': widget.pricingMode,
+      'document_type': _documentType,
+    };
 
-    if (discountValue > 0) {
+    if (widget.role == 'admin' && discountValue > 0) {
       payload['discount_mode'] = _discountMode;
       payload['discount_value'] = discountValue;
     }
+
+    payload['actor_role'] = widget.role;
 
     await _postJson(
       '/api/invoices/$_invoiceId/generate-pdf',
@@ -155,9 +163,10 @@ class _FolioPageState extends State<FolioPage> {
           : null;
       if (response.statusCode >= 200 && response.statusCode < 300) {
         if (decoded is Map && decoded['invoice'] is Map) {
-          setState(
-            () => _folio = Map<String, dynamic>.from(decoded['invoice'] as Map),
-          );
+          setState(() {
+            _folio = Map<String, dynamic>.from(decoded['invoice'] as Map);
+            _documentType = (_folio?['document_type'] ?? 'facture').toString();
+          });
         } else {
           await _fetchFolio();
         }
@@ -311,7 +320,6 @@ class _FolioPageState extends State<FolioPage> {
       'Mobile Money',
       'Chèque',
       'Virement',
-      'Acompte',
     ];
 
     return showDialog<Map<String, dynamic>>(
@@ -455,7 +463,7 @@ class _FolioPageState extends State<FolioPage> {
                 const Icon(Icons.lock_outline, size: 48, color: _muted),
                 const SizedBox(height: 12),
                 const Text(
-                  'Le folio n’est accessible qu’après le check-in, sauf pour les administrateurs.',
+                  'Le folio est accessible dès la réservation, sauf pour les dossiers annulés.',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontWeight: FontWeight.w700),
                 ),
@@ -496,16 +504,22 @@ class _FolioPageState extends State<FolioPage> {
                       child: ListView(
                         padding: const EdgeInsets.all(16),
                         children: [
-                          _SummaryPanel(folio: _folio!),
-                          const SizedBox(height: 16),
-                          _DiscountCard(
-                            controller: _discountController,
-                            mode: _discountMode,
-                            onModeChanged: (mode) =>
-                                setState(() => _discountMode = mode),
-                            onChanged: () => setState(() {}),
+                          _SummaryPanel(
+                            folio: _folio!,
+                            reservation: widget.reservation,
+                            showLoyalty: widget.role == 'admin',
                           ),
                           const SizedBox(height: 16),
+                          if (widget.role == 'admin') ...[
+                            _DiscountCard(
+                              controller: _discountController,
+                              mode: _discountMode,
+                              onModeChanged: (mode) =>
+                                  setState(() => _discountMode = mode),
+                              onChanged: () => setState(() {}),
+                            ),
+                            const SizedBox(height: 16),
+                          ],
                           _SectionHeader(
                             title: 'Lignes de facture',
                             action: _isFinalized
@@ -554,13 +568,31 @@ class _FolioPageState extends State<FolioPage> {
                               ),
                             ),
                           const SizedBox(height: 20),
+                          SegmentedButton<String>(
+                            segments: const [
+                              ButtonSegment(
+                                value: 'facture',
+                                label: Text('Facture'),
+                                icon: Icon(Icons.description_outlined),
+                              ),
+                              ButtonSegment(
+                                value: 'proforma',
+                                label: Text('Proforma'),
+                                icon: Icon(Icons.receipt_long_outlined),
+                              ),
+                            ],
+                            selected: {_documentType},
+                            onSelectionChanged: (selection) =>
+                                setState(() => _documentType = selection.first),
+                          ),
+                          const SizedBox(height: 12),
                           ElevatedButton.icon(
                             onPressed: _isBusy ? null : _generatePdf,
                             icon: const Icon(Icons.picture_as_pdf_outlined),
                             label: Text(
                               _hasPdf
                                   ? 'Mettre à jour le PDF'
-                                  : 'Générer la facture PDF',
+                                  : 'Générer le PDF',
                             ),
                           ),
                           const SizedBox(height: 10),
@@ -690,9 +722,15 @@ class InvoicePdfPage extends StatelessWidget {
 }
 
 class _SummaryPanel extends StatelessWidget {
-  const _SummaryPanel({required this.folio});
+  const _SummaryPanel({
+    required this.folio,
+    required this.reservation,
+    required this.showLoyalty,
+  });
 
   final Map<String, dynamic> folio;
+  final Map<String, dynamic> reservation;
+  final bool showLoyalty;
 
   @override
   Widget build(BuildContext context) {
@@ -703,6 +741,10 @@ class _SummaryPanel extends StatelessWidget {
         ? (guest['full_name'] ?? guest['first_name'] ?? '').toString().trim()
         : '';
     final hasLoyaltyInfo = guest is Map;
+    final contact = _formatContact(reservation);
+    final depositAmount = _asInt(folio['deposit_amount_ariary']);
+    final paidAmount = _asInt(folio['paid_amount_ariary']);
+    final balanceAmount = _asInt(folio['balance_amount_ariary']);
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -730,27 +772,39 @@ class _SummaryPanel extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: hasLoyaltyInfo
-                  ? const Color(0xFFE6FFFB)
-                  : const Color(0xFFF8FAFC),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: hasLoyaltyInfo ? _primary : _border),
-            ),
-            child: Text(
-              hasLoyaltyInfo
-                  ? 'Client régulier : $loyaltyCount visite${loyaltyCount > 1 ? 's' : ''}${guestName.isNotEmpty ? ' - $guestName' : ''}'
-                  : 'Fidélité client : information indisponible',
-              style: const TextStyle(
-                fontWeight: FontWeight.w800,
-                color: _primaryDark,
+          if (showLoyalty) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: hasLoyaltyInfo
+                    ? const Color(0xFFE6FFFB)
+                    : const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: hasLoyaltyInfo ? _primary : _border),
+              ),
+              child: Text(
+                hasLoyaltyInfo
+                    ? 'Client régulier : $loyaltyCount visite${loyaltyCount > 1 ? 's' : ''}${guestName.isNotEmpty ? ' - $guestName' : ''}'
+                    : 'Fidélité client : information indisponible',
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  color: _primaryDark,
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: 12),
+            const SizedBox(height: 12),
+          ],
+          if (contact.isNotEmpty) ...[
+            Text(
+              'Contact : $contact',
+              style: const TextStyle(
+                color: _muted,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
           Wrap(
             spacing: 16,
             runSpacing: 12,
@@ -759,13 +813,11 @@ class _SummaryPanel extends StatelessWidget {
                 label: 'Total',
                 value: _asPrice(folio['total_amount_ariary']),
               ),
+              _AmountMetric(label: 'Acompte', value: _asPrice(depositAmount)),
+              _AmountMetric(label: 'Total payé', value: _asPrice(paidAmount)),
               _AmountMetric(
-                label: 'Payé',
-                value: _asPrice(folio['paid_amount_ariary']),
-              ),
-              _AmountMetric(
-                label: 'Solde',
-                value: _asPrice(folio['balance_amount_ariary']),
+                label: 'Reste à payer',
+                value: _asPrice(balanceAmount),
                 emphasized: true,
               ),
             ],
@@ -776,6 +828,28 @@ class _SummaryPanel extends StatelessWidget {
   }
 
   static String _asPrice(dynamic value) => '${formatPrice(_asInt(value))} Ar';
+
+  static String _formatContact(Map<String, dynamic> reservation) {
+    final phone =
+        (reservation['phone'] ??
+                reservation['customer_phone'] ??
+                reservation['client_phone'] ??
+                '')
+            .toString()
+            .trim();
+    final email = (reservation['email'] ?? reservation['customer_email'] ?? '')
+        .toString()
+        .trim();
+
+    final parts = <String>[];
+    if (phone.isNotEmpty && phone != 'N/A') {
+      parts.add(phone);
+    }
+    if (email.isNotEmpty && email != 'N/A') {
+      parts.add(email);
+    }
+    return parts.join(' | ');
+  }
 }
 
 class _AmountMetric extends StatelessWidget {
@@ -873,6 +947,10 @@ class _PaymentTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final contextLabel =
+        (payment['payment_context']?.toString() ?? 'payment') == 'deposit'
+        ? 'Acompte'
+        : 'Paiement';
     return Card(
       child: ListTile(
         leading: const Icon(Icons.payments_outlined, color: _primary),
@@ -882,8 +960,12 @@ class _PaymentTile extends StatelessWidget {
         ),
         subtitle: Text(
           [
+            contextLabel,
             payment['payment_method']?.toString(),
-            payment['processed_by_name']?.toString(),
+            [
+              payment['processed_by_name']?.toString(),
+              payment['processed_by_role']?.toString(),
+            ].where((value) => value != null && value.isNotEmpty).join(' / '),
             payment['reference']?.toString(),
           ].where((value) => value != null && value.isNotEmpty).join(' - '),
         ),

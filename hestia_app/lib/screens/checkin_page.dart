@@ -1,9 +1,5 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:http_parser/http_parser.dart';
-import 'package:image_picker/image_picker.dart';
 
 import '../core/app_config.dart';
 import '../models/client_profile.dart';
@@ -13,8 +9,15 @@ import '../widgets/client_autocomplete_field.dart';
 
 class CheckInPage extends StatefulWidget {
   final Reservation reservation;
+  final String userName;
+  final String role;
 
-  const CheckInPage({super.key, required this.reservation});
+  const CheckInPage({
+    super.key,
+    required this.reservation,
+    required this.userName,
+    this.role = 'receptionist',
+  });
 
   @override
   State<CheckInPage> createState() => _CheckInPageState();
@@ -22,7 +25,6 @@ class CheckInPage extends StatefulWidget {
 
 class _CheckInPageState extends State<CheckInPage> {
   final _formKey = GlobalKey<FormState>();
-  final ImagePicker _picker = ImagePicker();
   final ClientSearchService _clientSearchService = ClientSearchService();
 
   final _firstNameController = TextEditingController();
@@ -31,12 +33,14 @@ class _CheckInPageState extends State<CheckInPage> {
   final _idNumberController = TextEditingController();
 
   DateTime? _dateOfBirth;
+  DateTime? _passportValidFrom;
+  DateTime? _passportValidUntil;
+  String _sex = 'Homme';
   String _idType = 'CIN';
-  Uint8List? _idPhotoBytes;
-  String? _idPhotoName;
   bool _isLoading = false;
   ClientProfile? _selectedClient;
 
+  final List<String> _sexes = ['Homme', 'Femme', 'Autre'];
   final List<String> _idTypes = ['CIN', 'Passeport', 'Permis'];
 
   @override
@@ -95,6 +99,11 @@ class _CheckInPageState extends State<CheckInPage> {
       _contactController.text = client.phoneNumber?.trim() ?? '';
       _idNumberController.text = client.displayDocumentNumber;
       _dateOfBirth = client.dateOfBirth ?? _dateOfBirth;
+      _passportValidFrom = client.passportValidFrom ?? _passportValidFrom;
+      _passportValidUntil = client.passportValidUntil ?? _passportValidUntil;
+      if (client.sex?.trim().isNotEmpty == true) {
+        _sex = client.sex!.trim();
+      }
     });
   }
 
@@ -104,19 +113,6 @@ class _CheckInPageState extends State<CheckInPage> {
     final parts = normalized.split(' ');
     if (parts.length == 1) return (parts.first, '');
     return (parts.first, parts.sublist(1).join(' '));
-  }
-
-  Future<void> _pickImage(ImageSource source) async {
-    final XFile? pickedFile = await _picker.pickImage(source: source);
-    if (pickedFile != null) {
-      final bytes = await pickedFile.readAsBytes();
-      setState(() {
-        _idPhotoBytes = bytes;
-        _idPhotoName = pickedFile.name.isNotEmpty
-            ? pickedFile.name
-            : 'id_photo.jpg';
-      });
-    }
   }
 
   Future<void> _selectDate() async {
@@ -133,6 +129,25 @@ class _CheckInPageState extends State<CheckInPage> {
     }
   }
 
+  Future<void> _selectPassportValidity() async {
+    final DateTime initial =
+        _passportValidUntil ??
+        _passportValidFrom ??
+        DateTime.now().add(const Duration(days: 365));
+    final DateTime firstDate = _passportValidFrom ?? DateTime.now();
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: firstDate,
+      lastDate: DateTime(2050),
+    );
+    if (picked != null && picked != _passportValidUntil) {
+      setState(() {
+        _passportValidUntil = picked;
+      });
+    }
+  }
+
   String get _fullName {
     final first = _firstNameController.text.trim();
     final last = _lastNameController.text.trim();
@@ -145,6 +160,30 @@ class _CheckInPageState extends State<CheckInPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Veuillez sélectionner la date de naissance'),
+        ),
+      );
+      return;
+    }
+
+    if (_idType == 'Passeport' &&
+        (_passportValidFrom == null || _passportValidUntil == null)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Veuillez sélectionner la validité du passeport'),
+        ),
+      );
+      return;
+    }
+
+    if (_idType == 'Passeport' &&
+        _passportValidFrom != null &&
+        _passportValidUntil != null &&
+        _passportValidFrom!.isAfter(_passportValidUntil!)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'La date de début doit être antérieure à la date de fin',
+          ),
         ),
       );
       return;
@@ -182,20 +221,20 @@ class _CheckInPageState extends State<CheckInPage> {
       request.fields['date_of_birth'] = _dateOfBirth!.toIso8601String().split(
         'T',
       )[0];
+      request.fields['sex'] = _sex;
+      if (_idType == 'Passeport') {
+        request.fields['passport_valid_from'] = _passportValidFrom!
+            .toIso8601String()
+            .split('T')[0];
+        request.fields['passport_valid_until'] = _passportValidUntil!
+            .toIso8601String()
+            .split('T')[0];
+      }
       request.fields['id_type'] = _idType;
       request.fields['id_number'] = _idNumberController.text.trim();
       request.fields['id_document_number'] = _idNumberController.text.trim();
-
-      if (_idPhotoBytes != null) {
-        request.files.add(
-          http.MultipartFile.fromBytes(
-            'id_photo',
-            _idPhotoBytes!,
-            filename: _idPhotoName ?? 'id_photo.jpg',
-            contentType: MediaType('image', 'jpeg'),
-          ),
-        );
-      }
+      request.fields['checked_in_by_name'] = widget.userName;
+      request.fields['checked_in_by_role'] = widget.role;
 
       final streamedResponse = await request.send();
       final response = await http.Response.fromStream(streamedResponse);
@@ -280,6 +319,7 @@ class _CheckInPageState extends State<CheckInPage> {
                       : split.$1;
                 },
                 onSelected: _applyClient,
+                showLoyalty: widget.role == 'admin',
               ),
               const SizedBox(height: 16),
               ClientAutocompleteField(
@@ -298,6 +338,7 @@ class _CheckInPageState extends State<CheckInPage> {
                       : split.$2;
                 },
                 onSelected: _applyClient,
+                showLoyalty: widget.role == 'admin',
               ),
               const SizedBox(height: 16),
               ClientAutocompleteField(
@@ -308,35 +349,28 @@ class _CheckInPageState extends State<CheckInPage> {
                 textInputAction: TextInputAction.next,
                 valueBuilder: (client) => client.phoneNumber?.trim() ?? '',
                 onSelected: _applyClient,
+                showLoyalty: widget.role == 'admin',
               ),
               const SizedBox(height: 16),
-              ClientAutocompleteField(
-                controller: _idNumberController,
-                labelText: 'Pièce d\'identité',
-                prefixIcon: Icons.badge,
-                keyboardType: TextInputType.text,
-                textInputAction: TextInputAction.next,
+              DropdownButtonFormField<String>(
+                initialValue: _sex,
+                decoration: const InputDecoration(
+                  labelText: 'Sexe',
+                  border: OutlineInputBorder(),
+                ),
+                items: _sexes
+                    .map(
+                      (sex) => DropdownMenuItem(value: sex, child: Text(sex)),
+                    )
+                    .toList(),
                 validator: (val) => val == null || val.trim().isEmpty
-                    ? 'Le numéro est requis'
+                    ? 'Le sexe est requis'
                     : null,
-                valueBuilder: (client) => client.displayDocumentNumber,
-                onSelected: _applyClient,
-              ),
-              const SizedBox(height: 16),
-              _loyaltyBanner(),
-              const SizedBox(height: 16),
-              ListTile(
-                title: Text(
-                  _dateOfBirth == null
-                      ? 'Sélectionner la date de naissance'
-                      : 'Date de naissance : ${_dateOfBirth!.toIso8601String().split('T')[0]}',
-                ),
-                trailing: const Icon(Icons.calendar_today),
-                shape: RoundedRectangleBorder(
-                  side: const BorderSide(color: Colors.grey),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                onTap: _selectDate,
+                onChanged: (val) {
+                  if (val != null) {
+                    setState(() => _sex = val);
+                  }
+                },
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
@@ -351,9 +385,103 @@ class _CheckInPageState extends State<CheckInPage> {
                           DropdownMenuItem(value: type, child: Text(type)),
                     )
                     .toList(),
-                onChanged: (val) => setState(() => _idType = val!),
+                onChanged: (val) {
+                  if (val == null) return;
+                  setState(() {
+                    _idType = val;
+                    if (_idType != 'Passeport') {
+                      _passportValidFrom = null;
+                      _passportValidUntil = null;
+                    } else if (_selectedClient?.passportValidFrom != null ||
+                        _selectedClient?.passportValidUntil != null) {
+                      _passportValidFrom = _selectedClient!.passportValidFrom;
+                      _passportValidUntil = _selectedClient!.passportValidUntil;
+                    }
+                  });
+                },
               ),
               const SizedBox(height: 24),
+              ClientAutocompleteField(
+                controller: _idNumberController,
+                labelText: 'Numéro de pièce d\'identité',
+                prefixIcon: Icons.badge,
+                keyboardType: TextInputType.text,
+                textInputAction: TextInputAction.next,
+                validator: (val) => val == null || val.trim().isEmpty
+                    ? 'Le numéro est requis'
+                    : null,
+                valueBuilder: (client) => client.displayDocumentNumber,
+                onSelected: _applyClient,
+                showLoyalty: widget.role == 'admin',
+              ),
+              const SizedBox(height: 16),
+              if (widget.role == 'admin') ...[
+                _loyaltyBanner(),
+                const SizedBox(height: 16),
+              ],
+              ListTile(
+                title: Text(
+                  _dateOfBirth == null
+                      ? 'Sélectionner la date de naissance'
+                      : 'Date de naissance : ${_dateOfBirth!.toIso8601String().split('T')[0]}',
+                ),
+                trailing: const Icon(Icons.calendar_today),
+                shape: RoundedRectangleBorder(
+                  side: const BorderSide(color: Colors.grey),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                onTap: _selectDate,
+              ),
+              const SizedBox(height: 16),
+              if (_idType == 'Passeport') ...[
+                ListTile(
+                  title: Text(
+                    _passportValidFrom == null
+                        ? 'Sélectionner la date de début du passeport'
+                        : 'Passeport valable du : ${_passportValidFrom!.toIso8601String().split('T')[0]}',
+                  ),
+                  trailing: const Icon(Icons.badge_outlined),
+                  shape: RoundedRectangleBorder(
+                    side: const BorderSide(color: Colors.grey),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  onTap: () async {
+                    final initial =
+                        _passportValidFrom ??
+                        _passportValidUntil ??
+                        DateTime.now();
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: initial,
+                      firstDate: DateTime(1900),
+                      lastDate: DateTime(2050),
+                    );
+                    if (picked == null) return;
+                    setState(() {
+                      _passportValidFrom = picked;
+                      if (_passportValidUntil != null &&
+                          _passportValidUntil!.isBefore(picked)) {
+                        _passportValidUntil = picked;
+                      }
+                    });
+                  },
+                ),
+                const SizedBox(height: 16),
+                ListTile(
+                  title: Text(
+                    _passportValidUntil == null
+                        ? 'Sélectionner la date de fin du passeport'
+                        : 'Passeport valable au : ${_passportValidUntil!.toIso8601String().split('T')[0]}',
+                  ),
+                  trailing: const Icon(Icons.event_available_outlined),
+                  shape: RoundedRectangleBorder(
+                    side: const BorderSide(color: Colors.grey),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  onTap: _selectPassportValidity,
+                ),
+                const SizedBox(height: 16),
+              ],
               if (_dateOfBirth != null)
                 Container(
                   width: double.infinity,
@@ -369,29 +497,6 @@ class _CheckInPageState extends State<CheckInPage> {
                   ),
                 ),
               if (_dateOfBirth != null) const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () => _pickImage(ImageSource.camera),
-                      icon: const Icon(Icons.camera_alt),
-                      label: const Text('Photo'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () => _pickImage(ImageSource.gallery),
-                      icon: const Icon(Icons.upload_file),
-                      label: const Text('Importer'),
-                    ),
-                  ),
-                ],
-              ),
-              if (_idPhotoBytes != null) ...[
-                const SizedBox(height: 8),
-                Image.memory(_idPhotoBytes!, height: 200, fit: BoxFit.cover),
-              ],
               const SizedBox(height: 32),
               ElevatedButton(
                 onPressed: _isLoading ? null : _submit,

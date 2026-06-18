@@ -3,8 +3,10 @@
 namespace App\Services;
 
 use App\Models\Reservation;
+use App\Models\ReservationAudit;
 use App\Models\Room;
 use App\Models\User;
+use App\Support\PhoneNumber;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -24,10 +26,11 @@ class BookingService
             }
 
             $source = $data['source'] ?? 'Appel';
+            $customerPhone = PhoneNumber::normalize($data['customer_phone'] ?? null);
             $reservation = Reservation::query()->create([
                 'client_name' => $data['client_name'],
-                'client_phone' => $data['customer_phone'] ?? '000000000',
-                'customer_phone' => $data['customer_phone'] ?? null,
+                'client_phone' => $customerPhone ?? '000000000',
+                'customer_phone' => $customerPhone,
                 'customer_email' => $data['customer_email'] ?? null,
                 'booking_reference' => 'RES-' . strtoupper(bin2hex(random_bytes(3))),
                 'source' => $source,
@@ -59,6 +62,19 @@ class BookingService
                         'price_snapshot_ariary' => $price,
                     ]);
                 });
+
+            ReservationAudit::create([
+                'reservation_id' => $reservation->id,
+                'action' => 'booked',
+                'actor_name' => $data['receptionist_name'] ?? null,
+                'actor_role' => 'receptionist',
+                'details' => [
+                    'room_ids' => collect($data['room_ids'] ?? [])->map(fn ($id) => (int) $id)->values()->all(),
+                    'check_in' => $data['check_in'],
+                    'check_out' => $data['check_out'],
+                    'source' => $source,
+                ],
+            ]);
 
             return $reservation->load('rooms');
         });
@@ -98,6 +114,19 @@ class BookingService
 
         $reservation->update($updateData);
 
+        if ($status === 'annule') {
+            ReservationAudit::create([
+                'reservation_id' => $reservation->id,
+                'action' => 'cancelled',
+                'actor_name' => $data['cancelled_by_name'] ?? null,
+                'actor_role' => null,
+                'details' => [
+                    'status' => $status,
+                    'payment_status' => $paymentStatus,
+                ],
+            ]);
+        }
+
         return $reservation;
     }
 
@@ -117,8 +146,13 @@ class BookingService
             ]);
         }
 
-        $checkIn = $data['check_in'];
-        $checkOut = $data['check_out'];
+        $isCheckedIn = $reservation->status === 'arrive';
+        $checkIn = $isCheckedIn
+            ? Carbon::parse($reservation->check_in_date)->toDateString()
+            : $data['check_in'];
+        $checkOut = $isCheckedIn
+            ? Carbon::parse($reservation->check_out_date)->toDateString()
+            : $data['check_out'];
         $roomIds = collect($data['room_ids'])->map(fn ($roomId) => (int) $roomId)->values();
         $conflictingRoomNumbers = Room::query()
             ->whereIn('id', $roomIds)
@@ -137,20 +171,64 @@ class BookingService
             ]);
         }
 
-        return DB::transaction(function () use ($reservation, $data, $roomIds) {
+        return DB::transaction(function () use ($reservation, $data, $roomIds, $isCheckedIn) {
+            $customerPhone = PhoneNumber::normalize($data['customer_phone'] ?? null);
             $previousPrices = $reservation->rooms
                 ->mapWithKeys(fn (Room $room) => [$room->id => (int) $room->pivot->price_snapshot_ariary]);
+            $previousRoomIds = $reservation->rooms->pluck('id')->map(fn ($id) => (int) $id)->sort()->values()->all();
+            $newRoomIds = $roomIds->sort()->values()->all();
 
-            $reservation->update([
-                'client_name' => $data['client_name'],
-                'client_phone' => $data['customer_phone'] ?? '000000000',
-                'customer_phone' => $data['customer_phone'] ?? null,
-                'customer_email' => $data['customer_email'] ?? null,
-                'check_in_date' => $data['check_in'],
-                'check_out_date' => $data['check_out'],
+            $changeSet = [];
+            $registerChange = function (string $field, mixed $before, mixed $after) use (&$changeSet): void {
+                if ($before !== $after) {
+                    $changeSet[$field] = [
+                        'before' => $before,
+                        'after' => $after,
+                    ];
+                }
+            };
+
+            $updateData = [
                 'extra_beds' => (int) ($data['extra_beds'] ?? 0),
                 'extra_mattresses' => (int) ($data['extra_mattresses'] ?? 0),
-            ]);
+            ];
+
+            if (!$isCheckedIn) {
+                $updateData = array_merge($updateData, [
+                    'client_name' => $data['client_name'],
+                    'client_phone' => $customerPhone ?? '000000000',
+                    'customer_phone' => $customerPhone,
+                    'customer_email' => $data['customer_email'] ?? null,
+                    'check_in_date' => $data['check_in'],
+                    'check_out_date' => $data['check_out'],
+                ]);
+            }
+
+            $registerChange('room_ids', $previousRoomIds, $newRoomIds);
+            $registerChange('extra_beds', (int) $reservation->extra_beds, (int) ($data['extra_beds'] ?? 0));
+            $registerChange(
+                'extra_mattresses',
+                (int) $reservation->extra_mattresses,
+                (int) ($data['extra_mattresses'] ?? 0)
+            );
+
+            if (!$isCheckedIn) {
+                $registerChange('client_name', $reservation->client_name, $data['client_name']);
+                $registerChange(
+                    'customer_phone',
+                    $reservation->customer_phone,
+                    $customerPhone
+                );
+                $registerChange(
+                    'customer_email',
+                    $reservation->customer_email,
+                    $data['customer_email'] ?? null
+                );
+                $registerChange('check_in', $reservation->check_in_date->toDateString(), $data['check_in']);
+                $registerChange('check_out', $reservation->check_out_date->toDateString(), $data['check_out']);
+            }
+
+            $reservation->update($updateData);
 
             $syncData = Room::query()
                 ->whereIn('id', $roomIds)
@@ -169,6 +247,16 @@ class BookingService
 
             $reservation->rooms()->sync($syncData);
 
+            if (!empty($changeSet)) {
+                ReservationAudit::create([
+                    'reservation_id' => $reservation->id,
+                    'action' => 'modified',
+                    'actor_name' => $data['modified_by_name'] ?? null,
+                    'actor_role' => $data['modified_by_role'] ?? null,
+                    'details' => $changeSet,
+                ]);
+            }
+
             return $reservation->refresh()->load(['rooms', 'user']);
         });
     }
@@ -176,7 +264,7 @@ class BookingService
     public function reservationsForDate(?string $date): Collection
     {
         return Reservation::query()
-            ->with(['rooms', 'user', 'invoice.payments'])
+            ->with(['rooms', 'user', 'invoice.payments', 'latestAudit', 'latestCheckInAudit', 'latestModificationAudit'])
             ->where('status', '!=', 'annule')
             ->when($date && $date !== 'all', function ($query) use ($date) {
                 $query->where('check_in_date', '<=', $date)
@@ -190,7 +278,7 @@ class BookingService
     public function activeReservations(string $date): Collection
     {
         return Reservation::query()
-            ->with(['rooms', 'user', 'invoice.payments'])
+            ->with(['rooms', 'user', 'invoice.payments', 'latestAudit', 'latestCheckInAudit', 'latestModificationAudit'])
             ->where('check_in_date', '<=', $date)
             ->where('check_out_date', '>', $date)
             ->get()
@@ -209,9 +297,29 @@ class BookingService
                     'total_price' => $formatted['total_price'],
                     'fixed_total_price' => $formatted['fixed_total_price'],
                     'paid_amount_ariary' => $formatted['paid_amount_ariary'],
+                    'deposit_amount_ariary' => $formatted['deposit_amount_ariary'],
                     'cancelled_by_name' => $formatted['cancelled_by_name'],
                     'latest_payment_processed_by' => $formatted['latest_payment_processed_by'],
+                    'latest_payment_processed_by_role' => $formatted['latest_payment_processed_by_role'],
+                    'latest_payment_method' => $formatted['latest_payment_method'],
+                    'latest_deposit_processed_by' => $formatted['latest_deposit_processed_by'],
+                    'latest_deposit_processed_by_role' => $formatted['latest_deposit_processed_by_role'],
+                    'latest_deposit_method' => $formatted['latest_deposit_method'],
+                    'payment_methods_display' => $formatted['payment_methods_display'],
                     'is_booking' => $formatted['is_booking'],
+                    'receptionist' => $formatted['receptionist'],
+                    'check_in_by' => $formatted['check_in_by'],
+                    'check_in_role' => $formatted['check_in_role'],
+                    'check_in_at' => $formatted['check_in_at'],
+                    'modified_by' => $formatted['modified_by'],
+                    'modified_by_role' => $formatted['modified_by_role'],
+                    'modified_at' => $formatted['modified_at'],
+                    'modified_details' => $formatted['modified_details'],
+                    'last_action' => $formatted['last_action'],
+                    'last_action_by' => $formatted['last_action_by'],
+                    'last_action_role' => $formatted['last_action_role'],
+                    'last_action_at' => $formatted['last_action_at'],
+                    'last_action_details' => $formatted['last_action_details'],
                     'rooms' => $formatted['rooms'],
                     'room_numbers' => $formatted['room_numbers'],
                 ];
@@ -257,9 +365,24 @@ class BookingService
         $fixedTotalPrice = ($rooms->sum(fn (Room $room) => (int) $room->base_price_ariary) * $nights) + $extrasPrice;
         $invoice = $reservation->invoice;
         $paymentStatus = $reservation->payment_status ?? 'unbilled';
-        $latestPayment = $invoice?->relationLoaded('payments')
-            ? $invoice->payments->sortByDesc('created_at')->first()
-            : $invoice?->payments()->orderByDesc('created_at')->first();
+        $payments = $invoice?->relationLoaded('payments')
+            ? $invoice->payments
+            : ($invoice ? $invoice->payments()->get() : collect());
+        $latestPayment = $payments
+            ->where('payment_context', 'payment')
+            ->sortByDesc('created_at')
+            ->first()
+            ?? $payments->sortByDesc('created_at')->first();
+        $latestDeposit = $payments
+            ->where('payment_context', 'deposit')
+            ->sortByDesc('created_at')
+            ->first();
+        $paymentMethods = $invoice?->relationLoaded('payments')
+            ? $invoice->payments->pluck('payment_method')->filter()->unique()->values()
+            : collect();
+        $paymentMethodsDisplay = $paymentMethods->isNotEmpty()
+            ? $paymentMethods->implode(' / ')
+            : 'N/A';
         if ($invoice && $paymentStatus === 'unbilled') {
             $paymentStatus = ((int) $invoice->balance_amount_ariary <= 0)
                 ? 'paid'
@@ -276,6 +399,9 @@ class BookingService
             'email' => $reservation->customer_email ?? 'N/A',
             'check_in' => $checkIn->toDateString(),
             'check_out' => $checkOut->toDateString(),
+            'contact' => ($reservation->customer_phone && $reservation->customer_phone !== '000000000')
+                ? $reservation->customer_phone
+                : ($reservation->client_phone ?? ($reservation->customer_email ?? 'N/A')),
             'status' => $reservation->status,
             'payment_status' => $paymentStatus,
             'source' => $reservation->source,
@@ -287,13 +413,37 @@ class BookingService
             'room_numbers' => $roomNumbers,
             'extra_beds' => $extraBeds,
             'extra_mattresses' => $extraMattresses,
+            'deposit_amount_ariary' => (int) ($invoice?->deposit_amount_ariary ?? 0),
             'total_price' => (int) $totalPrice,
             'fixed_total_price' => (int) $fixedTotalPrice,
             'paid_amount_ariary' => (int) ($invoice?->paid_amount_ariary ?? 0),
+            'balance_amount_ariary' => (int) ($invoice?->balance_amount_ariary ?? 0),
             'is_booking' => $reservation->source === 'Booking',
             'receptionist' => $reservation->user?->name ?? 'N/A',
-            'payment_status' => $paymentStatus,
+            'check_in_by' => $reservation->latestCheckInAudit?->actor_name ?? 'N/A',
+            'check_in_role' => $reservation->latestCheckInAudit?->actor_role,
+            'check_in_at' => optional($reservation->latestCheckInAudit?->created_at)->toDateTimeString(),
+            'modified_by' => $reservation->latestModificationAudit?->actor_name ?? 'N/A',
+            'modified_by_role' => $reservation->latestModificationAudit?->actor_role,
+            'modified_at' => optional($reservation->latestModificationAudit?->created_at)->toDateTimeString(),
+            'modified_details' => $reservation->latestModificationAudit?->details,
+            'last_action' => $reservation->latestAudit?->action,
+            'last_action_by' => $reservation->latestAudit?->actor_name,
+            'last_action_role' => $reservation->latestAudit?->actor_role,
+            'last_action_at' => optional($reservation->latestAudit?->created_at)->toDateTimeString(),
+            'last_action_details' => $reservation->latestAudit?->details,
+            'invoice_number' => $invoice?->invoice_number,
+            'invoice_status' => $invoice?->status ?? 'none',
+            'document_type' => $invoice?->document_type ?? 'facture',
+            'pdf_url' => $invoice?->pdf_path ? url("/api/invoices/{$invoice->id}/pdf") : null,
             'latest_payment_processed_by' => $latestPayment?->processed_by_name,
+            'latest_payment_processed_by_role' => $latestPayment?->processed_by_role,
+            'latest_payment_method' => $latestPayment?->payment_method,
+            'latest_deposit_processed_by' => $latestDeposit?->processed_by_name,
+            'latest_deposit_processed_by_role' => $latestDeposit?->processed_by_role,
+            'latest_deposit_method' => $latestDeposit?->payment_method,
+            'payment_methods' => $paymentMethods->all(),
+            'payment_methods_display' => $paymentMethodsDisplay,
             'created_at' => optional($reservation->created_at)->toDateTimeString(),
         ];
     }

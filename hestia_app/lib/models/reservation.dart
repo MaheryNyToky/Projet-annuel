@@ -55,8 +55,10 @@ class Reservation {
     required List<int> roomIds,
     int extraBeds = 0,
     int extraMattresses = 0,
+    String? modifiedByName,
+    String? modifiedByRole,
   }) {
-    return {
+    final payload = {
       'client_name': clientName,
       'customer_phone': phone,
       'customer_email': email,
@@ -66,6 +68,15 @@ class Reservation {
       'extra_beds': extraBeds,
       'extra_mattresses': extraMattresses,
     };
+
+    if (modifiedByName != null && modifiedByName.trim().isNotEmpty) {
+      payload['modified_by_name'] = modifiedByName.trim();
+    }
+    if (modifiedByRole != null && modifiedByRole.trim().isNotEmpty) {
+      payload['modified_by_role'] = modifiedByRole.trim();
+    }
+
+    return payload;
   }
 
   static int _asInt(dynamic value) {

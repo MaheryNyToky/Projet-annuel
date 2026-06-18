@@ -2,16 +2,20 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Reservation;
 use App\Http\Resources\RoomResource;
 use App\Models\Room;
 use App\Models\User;
+use App\Support\PhoneNumber;
 use App\Services\AuthService;
 use App\Services\AvailabilityService;
 use App\Services\BookingService;
 use App\Services\YieldService;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 class HotelManagementController extends Controller
@@ -38,7 +42,7 @@ class HotelManagementController extends Controller
     {
         $validated = $request->validate([
             'check_in' => 'required|date',
-            'check_out' => 'required|date|after:check_in|after_or_equal:today',
+            'check_out' => 'required|date|after:check_in',
             'exclude_reservation_id' => 'nullable|integer|exists:reservations,id',
         ]);
 
@@ -115,6 +119,8 @@ class HotelManagementController extends Controller
             'room_ids.*' => 'integer|distinct|exists:rooms,id',
             'extra_beds' => 'nullable|integer|min:0',
             'extra_mattresses' => 'nullable|integer|min:0',
+            'modified_by_name' => 'nullable|string|max:120',
+            'modified_by_role' => 'nullable|string|in:admin,receptionist',
         ]);
 
         if (empty($validated['customer_phone']) && empty($validated['customer_email'])) {
@@ -159,6 +165,70 @@ class HotelManagementController extends Controller
         $date = $validated['date'] ?? now()->toDateString();
 
         return response()->json($this->bookingService->activeReservations($date)->values());
+    }
+
+    public function searchClientHistory(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'q' => 'required|string|min:2|max:120',
+        ]);
+
+        $term = trim($validated['q']);
+        $normalizedPhone = PhoneNumber::normalize($term);
+        $normalizedTerm = Str::lower(Str::ascii($normalizedPhone ?? $term));
+        $today = now()->startOfDay();
+
+        $reservations = Reservation::query()
+            ->with(['rooms', 'user', 'guest', 'invoice.payments', 'latestAudit', 'latestCheckInAudit', 'latestModificationAudit'])
+            ->where(function ($query) use ($normalizedTerm) {
+                $like = '%' . $normalizedTerm . '%';
+
+                $query->whereRaw('LOWER(client_name) LIKE ?', [$like])
+                    ->orWhereRaw('LOWER(client_phone) LIKE ?', [$like])
+                    ->orWhereRaw('LOWER(customer_phone) LIKE ?', [$like])
+                    ->orWhereRaw('LOWER(booking_reference) LIKE ?', [$like])
+                    ->orWhereHas('guest', function ($guestQuery) use ($like) {
+                        $guestQuery
+                            ->whereRaw('LOWER(full_name) LIKE ?', [$like])
+                            ->orWhereRaw('LOWER(first_name) LIKE ?', [$like])
+                            ->orWhereRaw('LOWER(last_name) LIKE ?', [$like])
+                            ->orWhereRaw('LOWER(phone_number) LIKE ?', [$like])
+                            ->orWhereRaw('LOWER(id_number) LIKE ?', [$like])
+                            ->orWhereRaw('LOWER(id_document_number) LIKE ?', [$like]);
+                    });
+            })
+            ->orderByDesc('check_in_date')
+            ->orderByDesc('created_at')
+            ->limit(100)
+            ->get()
+            ->map(function (Reservation $reservation) use ($today) {
+                $formatted = $this->bookingService->formatReservation($reservation);
+                $checkIn = Carbon::parse($reservation->check_in_date);
+                $checkOut = Carbon::parse($reservation->check_out_date);
+
+                $period = 'futur';
+                if ($reservation->status === 'annule') {
+                    $period = 'annulé';
+                } elseif ($checkOut->lt($today)) {
+                    $period = 'passé';
+                } elseif ($checkIn->lte($today) && $checkOut->gt($today)) {
+                    $period = 'présent';
+                }
+
+                return [
+                    ...$formatted,
+                    'period' => $period,
+                    'check_in_date' => $checkIn->toDateString(),
+                    'check_out_date' => $checkOut->toDateString(),
+                ];
+            })
+            ->values();
+
+        return response()->json([
+            'status' => 'success',
+            'query' => $term,
+            'data' => $reservations,
+        ]);
     }
 
     public function getUsers(): JsonResponse

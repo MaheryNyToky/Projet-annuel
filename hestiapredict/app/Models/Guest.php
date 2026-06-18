@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use App\Support\PhoneNumber;
 
 class Guest extends Model
 {
@@ -15,6 +16,9 @@ class Guest extends Model
         'first_name',
         'last_name',
         'phone_number',
+        'sex',
+        'passport_valid_from',
+        'passport_valid_until',
         'id_document_number',
         'loyalty_count',
         'full_name',
@@ -26,11 +30,18 @@ class Guest extends Model
 
     protected $casts = [
         'date_of_birth' => 'date:Y-m-d',
+        'passport_valid_from' => 'date:Y-m-d',
+        'passport_valid_until' => 'date:Y-m-d',
         'loyalty_count' => 'integer',
     ];
 
     public function reservation(): BelongsTo
     {
         return $this->belongsTo(Reservation::class);
+    }
+
+    public function setPhoneNumberAttribute(?string $value): void
+    {
+        $this->attributes['phone_number'] = PhoneNumber::normalize($value);
     }
 }

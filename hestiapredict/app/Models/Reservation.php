@@ -2,9 +2,12 @@
 
 namespace App\Models;
 
+use App\Support\PhoneNumber;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Reservation extends Model
 {
@@ -56,6 +59,40 @@ class Reservation extends Model
     public function invoice()
     {
         return $this->hasOne(Invoice::class);
+    }
+
+    public function audits(): HasMany
+    {
+        return $this->hasMany(ReservationAudit::class);
+    }
+
+    public function latestAudit(): HasOne
+    {
+        return $this->hasOne(ReservationAudit::class)->latestOfMany();
+    }
+
+    public function latestCheckInAudit(): HasOne
+    {
+        return $this->hasOne(ReservationAudit::class)
+            ->where('action', 'check_in')
+            ->latestOfMany();
+    }
+
+    public function latestModificationAudit(): HasOne
+    {
+        return $this->hasOne(ReservationAudit::class)
+            ->where('action', 'modified')
+            ->latestOfMany();
+    }
+
+    public function setClientPhoneAttribute(?string $value): void
+    {
+        $this->attributes['client_phone'] = PhoneNumber::normalize($value);
+    }
+
+    public function setCustomerPhoneAttribute(?string $value): void
+    {
+        $this->attributes['customer_phone'] = PhoneNumber::normalize($value);
     }
 
     public function scopeActiveDuring($query, string $date)

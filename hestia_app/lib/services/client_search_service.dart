@@ -24,12 +24,20 @@ class ClientSearchService {
           ? (decoded['data'] as List<dynamic>? ?? const [])
           : (decoded as List<dynamic>? ?? const []);
 
-      return rawList
-          .whereType<Map>()
-          .map(
-            (item) => ClientProfile.fromJson(Map<String, dynamic>.from(item)),
-          )
-          .toList();
+      final results = <ClientProfile>[];
+      final seenKeys = <String>{};
+
+      for (final item in rawList.whereType<Map>()) {
+        final client = ClientProfile.fromJson(Map<String, dynamic>.from(item));
+        final key = client.dedupKey;
+        if (key.isEmpty || seenKeys.contains(key)) {
+          continue;
+        }
+        seenKeys.add(key);
+        results.add(client);
+      }
+
+      return results;
     } catch (_) {
       return const [];
     }

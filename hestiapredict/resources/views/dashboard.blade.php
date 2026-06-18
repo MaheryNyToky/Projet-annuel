@@ -259,6 +259,55 @@
                     </article>
                 </aside>
 
+                <article class="bento-card col-span-1 p-6 sm:p-7 xl:col-span-12">
+                    <div class="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+                        <div>
+                            <p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">Recherche client</p>
+                            <h2 class="display-serif mt-2 text-4xl font-semibold text-[var(--ink)]">Historique complet</h2>
+                            <p class="mt-2 text-sm text-[var(--muted)]">Tape le nom ou le prénom d’un client pour voir ses réservations passées, en cours et à venir, ainsi que l’état de la facture.</p>
+                        </div>
+                        <div class="flex w-full max-w-2xl gap-3">
+                            <input
+                                id="client-history-query"
+                                type="text"
+                                placeholder="Nom et prénom du client"
+                                class="h-12 flex-1 rounded-full border border-[rgba(68,52,39,0.12)] bg-white/80 px-4 text-sm font-semibold text-[var(--ink)] outline-none transition focus:border-[var(--accent)] focus:ring-2 focus:ring-[rgba(31,118,101,0.12)]"
+                                onkeydown="if (event.key === 'Enter') searchClientHistory();"
+                            >
+                            <button
+                                type="button"
+                                onclick="searchClientHistory()"
+                                class="pill-btn inline-flex items-center justify-center gap-2 bg-[var(--ink)] px-5 text-sm font-bold text-[#fbf4ea] transition hover:opacity-90"
+                            >
+                                Rechercher
+                            </button>
+                        </div>
+                    </div>
+                    <div id="client-history-summary" class="mt-4 text-sm font-semibold text-[var(--muted)]">Aucune recherche lancée.</div>
+                    <div class="table-shell mobile-card-table mt-6">
+                        <table class="data-table w-full text-left text-sm">
+                            <thead>
+                                <tr>
+                                    <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortClientHistoryByKey('period')">Période</th>
+                                    <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortClientHistoryByKey('reference')">Référence</th>
+                                    <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortClientHistoryByKey('client_name')">Client</th>
+                                    <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortClientHistoryByKey('contact')">Contact</th>
+                                    <th class="px-5 py-3">Chambre(s)</th>
+                                    <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortClientHistoryByKey('check_in_date')">Séjour</th>
+                                    <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortClientHistoryByKey('receptionist')">Pris par</th>
+                                    <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortClientHistoryByKey('status')">Check-in</th>
+                                    <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortClientHistoryByKey('invoice_status')">Facture</th>
+                                    <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortClientHistoryByKey('payment_status')">Paiement</th>
+                                    <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortClientHistoryByKey('deposit_amount_ariary')">Acompte</th>
+                                    <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortClientHistoryByKey('fixed_total_price')">Total</th>
+                                    <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortClientHistoryByKey('balance_amount_ariary')">Reste à payer</th>
+                                </tr>
+                            </thead>
+                            <tbody id="client-history-table-body" class="divide-y divide-[rgba(68,52,39,0.08)]"></tbody>
+                        </table>
+                    </div>
+                </article>
+
                 <!-- Sélecteur d'onglets déplacé ici, après le Prix moyen -->
                 <article class="bento-card col-span-1 p-4 sm:p-5 xl:col-span-8 xl:col-start-1">
                     <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -366,12 +415,14 @@
                                         <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortReservations('reference')">Référence</th>
                                         <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortReservations('client_name')">Client</th>
                                         <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortReservations('contact')">Contact</th>
-                                        <th class="px-5 py-3">N° chambres</th>
-                                        <th class="px-5 py-3">Chambres</th>
+                                        <th class="px-5 py-3">Chambre(s)</th>
                                         <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortReservations('check_in')">Séjour</th>
-                                        <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortReservations('fixed_total_price')">Total fixe</th>
-                                        <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortReservations('paid_amount_ariary')">Total encaissé</th>
-                                        <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortReservations('status')">Statut</th>
+                                        <th class="px-5 py-3">Pris par</th>
+                                        <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortReservations('status')">Check-in</th>
+                                        <th class="px-5 py-3">Paiement</th>
+                                        <th class="px-5 py-3">Acompte</th>
+                                        <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortReservations('fixed_total_price')">Total</th>
+                                        <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortReservations('balance_amount_ariary')">Reste à payer</th>
                                     </tr>
                                 </thead>
                                 <tbody id="reservations-table-body" class="divide-y divide-[rgba(68,52,39,0.08)]"></tbody>
@@ -450,8 +501,11 @@
         let financeChart = null;
         let globalAiDailyCa = 0;
         let allReservationsData = [];
+        let clientHistoryData = [];
         let sortDirection = 1;
         let lastSortKey = '';
+        let clientHistorySortKey = 'check_in_date';
+        let clientHistorySortDirection = -1;
 
         const chartGridColor = 'rgba(117, 105, 94, 0.16)';
         const chartTextColor = '#75695e';
@@ -489,6 +543,7 @@
             runAudit();
             loadReservations();
             loadAiRevenueSummary();
+            searchClientHistory(true);
         }
 
         function updateConnectionState(isFallback) {
@@ -659,19 +714,48 @@
                 lastSortKey = key;
             }
 
-            const sorted = [...allReservationsData].sort((a, b) => {
+            const sorted = sortRows([...allReservationsData], key, sortDirection);
+            renderReservationsTable(sorted);
+        }
+
+        function sortRows(rows, key, direction = 1) {
+            const numericKeys = ['fixed_total_price', 'paid_amount_ariary', 'balance_amount_ariary', 'total_price', 'deposit_amount_ariary'];
+
+            return rows.sort((a, b) => {
                 let valA = a[key];
                 let valB = b[key];
 
-                if (typeof valA === 'string') valA = valA.toLowerCase();
-                if (typeof valB === 'string') valB = valB.toLowerCase();
+                if (numericKeys.includes(key)) {
+                    valA = Number(valA || 0);
+                    valB = Number(valB || 0);
+                } else {
+                    valA = (valA || '').toString().toLowerCase();
+                    valB = (valB || '').toString().toLowerCase();
+                }
 
-                if (valA < valB) return -1 * sortDirection;
-                if (valA > valB) return 1 * sortDirection;
+                if (valA < valB) return -1 * direction;
+                if (valA > valB) return 1 * direction;
                 return 0;
             });
+        }
 
-            renderReservationsTable(sorted);
+        function clientHistorySortLabel(key) {
+            const labels = {
+                period: 'Période',
+                reference: 'Référence',
+                client_name: 'Client',
+                contact: 'Contact',
+                check_in_date: 'Séjour',
+                receptionist: 'Pris par',
+                status: 'Check-in',
+                invoice_status: 'Facture',
+                payment_status: 'Paiement',
+                deposit_amount_ariary: 'Acompte',
+                fixed_total_price: 'Total',
+                balance_amount_ariary: 'Reste à payer',
+            };
+
+            return labels[key] || key;
         }
 
         function statusBadge(status, paymentStatus = null, cancelledByName = null, processedByName = null) {
@@ -699,6 +783,184 @@
             return `<span class="inline-flex rounded-full bg-white/75 px-3 py-1 text-xs font-black text-[var(--muted)]">${normalizedStatus || 'N/A'}</span>`;
         }
 
+        function formatShortDate(dateStr) {
+            const raw = (dateStr || '').toString();
+            if (!raw) return 'N/A';
+            const dateOnly = raw.split('T')[0];
+            const parts = dateOnly.split('-');
+            if (parts.length !== 3) return raw;
+            return `${parts[2]}/${parts[1]}`;
+        }
+
+        function formatStayNights(checkIn, checkOut) {
+            const startRaw = (checkIn || '').toString().split('T')[0];
+            const endRaw = (checkOut || '').toString().split('T')[0];
+            if (!startRaw || !endRaw) return 'N/A';
+
+            const start = new Date(`${startRaw}T00:00:00`);
+            const end = new Date(`${endRaw}T00:00:00`);
+            if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+                return 'N/A';
+            }
+
+            const diff = Math.round((end.getTime() - start.getTime()) / 86400000);
+            const nights = Math.max(0, diff);
+            return `${nights} nuit${nights > 1 ? 's' : ''}`;
+        }
+
+        function formatStayRange(checkIn, checkOut) {
+            const nights = formatStayNights(checkIn, checkOut);
+            return `${formatShortDate(checkIn)} à ${formatShortDate(checkOut)} (${nights})`;
+        }
+
+        function actorText(name, role = null) {
+            const normalizedName = (name || '').toString().trim();
+            const normalizedRole = (role || '').toString().trim();
+            if (!normalizedName || normalizedName === 'N/A') {
+                return 'N/A';
+            }
+            return normalizedRole && normalizedRole !== 'N/A'
+                ? `${normalizedName} / ${normalizedRole}`
+                : normalizedName;
+        }
+
+        function infoPill(label, accent = false) {
+            const classes = accent
+                ? 'bg-white/75 text-[var(--accent)] border border-[rgba(42,34,27,0.15)]'
+                : 'bg-white/75 text-[var(--muted)] border border-[rgba(68,52,39,0.10)]';
+            return `<span class="inline-flex rounded-full px-3 py-1 text-xs font-black ${classes}">${label}</span>`;
+        }
+
+        function checkInBadge(res) {
+            const status = (res.status || '').toString();
+            const checkInActor = actorText(res.check_in_by, res.check_in_role);
+            const modifiedBy = actorText(res.modified_by, res.modified_by_role);
+
+            if (status === 'en_attente') {
+                const modifiedLine = modifiedBy !== 'N/A'
+                    ? `<button type="button" class="text-left text-[10px] font-semibold text-[var(--accent)] hover:underline" onclick="openReservationAuditModal('${res.reference || ''}')">Modifié par ${modifiedBy}</button>`
+                    : '';
+                return `
+                    <div class="flex flex-col gap-1">
+                        ${infoPill('En attente')}
+                        <span class="text-[10px] font-semibold text-[var(--muted)]">Effectué par : N/A</span>
+                        ${modifiedLine}
+                    </div>
+                `;
+            }
+
+            if (status === 'annule') {
+                return `
+                    <div class="flex flex-col gap-1">
+                        ${infoPill('Annulé', true)}
+                        <span class="text-[10px] font-semibold text-[var(--muted)]">Par : ${actorText(res.cancelled_by_name)}</span>
+                    </div>
+                `;
+            }
+
+            const modifiedLine = modifiedBy !== 'N/A'
+                ? `<button type="button" class="text-left text-[10px] font-semibold text-[var(--accent)] hover:underline" onclick="openReservationAuditModal('${res.reference || ''}')">Modifié par ${modifiedBy}</button>`
+                : '<span class="text-[10px] font-semibold text-[var(--muted)]">Modifié par : N/A</span>';
+
+            return `
+                <div class="flex flex-col gap-1">
+                    ${infoPill(`Effectué par ${checkInActor}`)}
+                    ${modifiedLine}
+                </div>
+            `;
+        }
+
+        function paymentBadgeDetailed(res) {
+            const methods = (res.payment_methods_display || '').toString().trim();
+            const paid = Number(res.paid_amount_ariary || 0);
+            const status = (res.payment_status || '').toString();
+            const actor = actorText(res.latest_payment_processed_by, res.latest_payment_processed_by_role);
+
+            if (!methods && actor === 'N/A' && !paid) {
+                return infoPill('N/A');
+            }
+
+            const statusLabel = status === 'paid'
+                ? 'Payé'
+                : (status === 'partial' ? 'Partiel' : (status === 'unpaid' ? 'En attente' : (status || 'N/A')));
+
+            return `
+                <div class="flex flex-col gap-1">
+                    <span class="font-black text-[var(--ink)]">${methods || 'N/A'}</span>
+                    <span class="text-[11px] font-semibold text-[var(--muted)]">${statusLabel} · ${formatMoney(paid)}${actor !== 'N/A' ? ` · ${actor}` : ''}</span>
+                </div>
+            `;
+        }
+
+        function depositBadgeDetailed(res) {
+            const methods = (res.latest_deposit_method || '').toString().trim();
+            const actor = actorText(res.latest_deposit_processed_by, res.latest_deposit_processed_by_role);
+            const depositAmount = Number(res.deposit_amount_ariary || 0);
+
+            if (!methods && actor === 'N/A' && !depositAmount) {
+                return infoPill('N/A');
+            }
+
+            return `
+                <div class="flex flex-col gap-1">
+                    <span class="font-black text-[var(--ink)]">${methods || 'N/A'}</span>
+                    <span class="text-[11px] font-semibold text-[var(--muted)]">Acompte ${formatMoney(depositAmount)}${actor !== 'N/A' ? ` · ${actor}` : ''}</span>
+                </div>
+            `;
+        }
+
+        function openReservationAuditModal(reference) {
+            const rows = allReservationsData || [];
+            const reservation = rows.find((row) => (row.reference || '').toString() === reference);
+            if (!reservation) return;
+            const details = reservation.modified_details || reservation.last_action_details;
+            const entries = details && typeof details === 'object' ? Object.entries(details) : [];
+            if (entries.length === 0) {
+                alert('Aucun détail de modification disponible.');
+                return;
+            }
+
+            const existing = document.getElementById('audit-modal-overlay');
+            if (existing) existing.remove();
+
+            const overlay = document.createElement('div');
+            overlay.id = 'audit-modal-overlay';
+            overlay.className = 'fixed inset-0 z-[999] flex items-center justify-center bg-black/50 px-4';
+
+            const body = entries.map(([key, value]) => {
+                const before = value && typeof value === 'object' ? value.before : null;
+                const after = value && typeof value === 'object' ? value.after : null;
+                return `
+                    <div class="mb-4 rounded-2xl border border-[rgba(68,52,39,0.10)] bg-white p-4">
+                        <div class="mb-2 font-black text-[var(--ink)]">${key.replaceAll('_', ' ')}</div>
+                        <div class="text-sm text-[var(--muted)]">Avant : ${Array.isArray(before) ? before.join(', ') : (before ?? 'N/A')}</div>
+                        <div class="text-sm text-[var(--muted)]">Après : ${Array.isArray(after) ? after.join(', ') : (after ?? 'N/A')}</div>
+                    </div>
+                `;
+            }).join('');
+
+            overlay.innerHTML = `
+                <div class="w-full max-w-2xl rounded-[28px] bg-[var(--sand)] p-4 shadow-2xl">
+                    <div class="flex items-start justify-between gap-4 border-b border-[rgba(68,52,39,0.10)] pb-4">
+                        <div>
+                            <p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">Audit</p>
+                            <h3 class="display-serif mt-1 text-3xl font-semibold text-[var(--ink)]">Modification de ${reservation.reference || 'N/A'}</h3>
+                            <p class="mt-1 text-sm text-[var(--muted)]">Par ${actorText(reservation.modified_by, reservation.modified_by_role)}${reservation.modified_at ? ` · ${reservation.modified_at}` : ''}</p>
+                        </div>
+                        <button type="button" class="rounded-full border border-[rgba(68,52,39,0.10)] bg-white px-3 py-1 text-sm font-black text-[var(--ink)]" onclick="document.getElementById('audit-modal-overlay')?.remove()">Fermer</button>
+                    </div>
+                    <div class="mt-4 max-h-[60vh] overflow-auto">
+                        ${body}
+                    </div>
+                </div>
+            `;
+
+            overlay.addEventListener('click', (event) => {
+                if (event.target === overlay) overlay.remove();
+            });
+            document.body.appendChild(overlay);
+        }
+
         function sourceBadge(source) {
             const classes = {
                 Booking: 'bg-white/75 text-indigo-700',
@@ -708,12 +970,182 @@
             return `<span class="inline-flex rounded-full ${(classes[source] || 'bg-white/75 text-[var(--muted)]')} px-3 py-1 text-xs font-bold">${source || 'N/A'}</span>`;
         }
 
+        function periodBadge(period) {
+            const normalized = (period || '').toString();
+            const classes = {
+                passé: 'bg-white/75 text-slate-700',
+                présent: 'bg-white/75 text-emerald-700',
+                futur: 'bg-white/75 text-indigo-700',
+                annulé: 'bg-white/75 text-rose-700',
+            };
+            return `<span class="inline-flex rounded-full ${(classes[normalized] || 'bg-white/75 text-[var(--muted)]')} px-3 py-1 text-xs font-black">${normalized || 'N/A'}</span>`;
+        }
+
+        function invoiceBadge(res) {
+            const invoiceStatus = (res.invoice_status || '').toString();
+            const paymentStatus = (res.payment_status || '').toString();
+            if (!res.invoice_number) {
+                return '<span class="inline-flex rounded-full bg-white/75 px-3 py-1 text-xs font-black text-[var(--muted)]">Non générée</span>';
+            }
+
+            const label = invoiceStatus === 'paid' || paymentStatus === 'paid'
+                ? 'Payée'
+                : (paymentStatus === 'partial' || paymentStatus === 'unpaid'
+                    ? 'En attente'
+                    : 'Ouverte');
+            const color = invoiceStatus === 'paid' || paymentStatus === 'paid'
+                ? 'text-emerald-700'
+                : 'text-amber-700';
+
+            const pdfLink = res.pdf_url
+                ? `<a href="${res.pdf_url}" target="_blank" rel="noopener" class="mt-2 inline-flex items-center gap-1 rounded-full border border-[rgba(68,52,39,0.12)] bg-white/80 px-3 py-1 text-[11px] font-black text-[var(--ink)] transition hover:bg-white">
+                        <span>Voir PDF</span>
+                    </a>`
+                : '';
+
+            return `<div class="flex flex-col items-start">
+                <span class="inline-flex rounded-full bg-white/75 px-3 py-1 text-xs font-black ${color}">${label}</span>
+                ${pdfLink}
+            </div>`;
+        }
+
+        function paymentBadge(res) {
+            const methods = (res.payment_methods_display || '').toString().trim();
+            const paid = Number(res.paid_amount_ariary || 0);
+            const balance = Number(res.balance_amount_ariary || 0);
+            const status = (res.payment_status || '').toString();
+            const statusLabel = status === 'paid'
+                ? 'Payé'
+                : (status === 'partial' ? 'Partiel' : (status === 'unpaid' ? 'En attente' : (status || 'N/A')));
+            const statusClass = status === 'paid'
+                ? 'text-emerald-700'
+                : (status === 'partial' ? 'text-amber-700' : 'text-[var(--muted)]');
+
+            return `
+                <div class="flex flex-col gap-1">
+                    <span class="font-black text-[var(--ink)]">${methods || 'Aucune méthode'}</span>
+                    <span class="text-[11px] font-semibold ${statusClass}">
+                        ${statusLabel} · ${formatMoney(paid)}${balance > 0 ? ` · solde ${formatMoney(balance)}` : ''}
+                    </span>
+                </div>
+            `;
+        }
+
+        function searchClientHistory(silent = false) {
+            const query = document.getElementById('client-history-query')?.value?.trim() || '';
+            const summary = document.getElementById('client-history-summary');
+            const tableBody = document.getElementById('client-history-table-body');
+
+            if (query.length < 2) {
+                clientHistoryData = [];
+                if (tableBody) {
+                    tableBody.innerHTML = '';
+                }
+                if (summary && !silent) {
+                    summary.textContent = 'Saisis au moins 2 caractères pour lancer la recherche.';
+                }
+                return;
+            }
+
+            if (summary && !silent) {
+                summary.textContent = 'Recherche en cours...';
+            }
+
+            fetch(`/api/dashboard/client-history?q=${encodeURIComponent(query)}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status !== 'success') {
+                        clientHistoryData = [];
+                        if (summary) {
+                            summary.textContent = 'Aucun résultat.';
+                        }
+                        if (tableBody) {
+                            tableBody.innerHTML = '';
+                        }
+                        return;
+                    }
+
+                    clientHistoryData = data.data || [];
+                    renderClientHistoryTable(query, clientHistoryData);
+                })
+                .catch(() => {
+                    clientHistoryData = [];
+                    if (summary) {
+                        summary.textContent = 'Recherche indisponible.';
+                    }
+                    if (tableBody) {
+                        tableBody.innerHTML = '';
+                    }
+                });
+        }
+
+        function sortClientHistoryByKey(key) {
+            if (!clientHistoryData || clientHistoryData.length === 0) {
+                return;
+            }
+
+            if (clientHistorySortKey === key) {
+                clientHistorySortDirection *= -1;
+            } else {
+                clientHistorySortKey = key;
+                clientHistorySortDirection = ['check_in_date', 'balance_amount_ariary', 'fixed_total_price', 'deposit_amount_ariary'].includes(key)
+                    ? -1
+                    : 1;
+            }
+
+            const query = document.getElementById('client-history-query')?.value?.trim() || '';
+            renderClientHistoryTable(query, clientHistoryData);
+        }
+
+        function renderClientHistoryTable(query, rows) {
+            const tableBody = document.getElementById('client-history-table-body');
+            const summary = document.getElementById('client-history-summary');
+            if (!tableBody || !summary) {
+                return;
+            }
+
+            tableBody.innerHTML = '';
+
+            if (!rows || rows.length === 0) {
+                summary.textContent = `Aucune réservation trouvée pour "${query}".`;
+                tableBody.innerHTML = '<tr><td colspan="13" class="px-5 py-8 text-center text-[var(--muted)]">Aucun historique disponible.</td></tr>';
+                return;
+            }
+
+            summary.textContent = `${rows.length} réservation(s) trouvée(s) pour "${query}". Tri : ${clientHistorySortLabel(clientHistorySortKey)} (${clientHistorySortDirection === 1 ? 'croissant' : 'décroissant'}).`;
+
+            const sortedRows = sortRows([...rows], clientHistorySortKey, clientHistorySortDirection);
+
+            sortedRows.forEach(res => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td data-label="Période" class="px-5 py-4">${periodBadge(res.period)}</td>
+                    <td data-label="Référence" class="px-5 py-4 font-mono text-xs font-black text-[var(--accent)]">${res.reference || 'N/A'}</td>
+                    <td data-label="Client" class="px-5 py-4 font-bold text-[var(--ink)]">${res.client_name || 'N/A'}</td>
+                    <td data-label="Contact" class="px-5 py-4 text-xs">${res.contact || 'N/A'}</td>
+                    <td data-label="Chambre(s)" class="px-5 py-4 text-xs">
+                        <div class="font-mono font-black text-[var(--ink)]">${res.room_numbers || 'N/A'}</div>
+                        <div class="mt-1 font-semibold text-[var(--muted)]">${res.rooms || 'N/A'}</div>
+                    </td>
+                    <td data-label="Séjour" class="px-5 py-4 text-xs">${formatStayRange(res.check_in_date || res.check_in, res.check_out_date || res.check_out)}</td>
+                    <td data-label="Pris par" class="px-5 py-4 text-xs">${actorText(res.receptionist)}</td>
+                    <td data-label="Check-in" class="px-5 py-4 text-xs">${checkInBadge(res)}</td>
+                    <td data-label="Facture" class="px-5 py-4 text-xs">${invoiceBadge(res)}</td>
+                    <td data-label="Paiement" class="px-5 py-4 text-xs">${paymentBadgeDetailed(res)}</td>
+                    <td data-label="Acompte" class="px-5 py-4 text-xs">${depositBadgeDetailed(res)}</td>
+                    <td data-label="Total" class="px-5 py-4 text-xs font-bold text-[var(--muted)]">${formatMoney(res.fixed_total_price || 0)}</td>
+                    <td data-label="Reste à payer" class="px-5 py-4 text-xs font-black text-[var(--ink)]">${formatMoney(res.balance_amount_ariary || 0)}</td>
+                `;
+                tableBody.appendChild(row);
+            });
+        }
+
         function renderReservationsTable(data) {
             const tableBody = document.getElementById('reservations-table-body');
             tableBody.innerHTML = '';
 
             if (data.length === 0) {
-                tableBody.innerHTML = '<tr><td colspan="9" class="px-5 py-8 text-center text-[var(--muted)]">Aucune réservation active pour cette date.</td></tr>';
+                tableBody.innerHTML = '<tr><td colspan="11" class="px-5 py-8 text-center text-[var(--muted)]">Aucune réservation active pour cette date.</td></tr>';
                 return;
             }
 
@@ -723,12 +1155,17 @@
                     <td data-label="Référence" class="px-5 py-4 font-mono text-xs font-black text-[var(--accent)]">${res.reference}</td>
                     <td data-label="Client" class="px-5 py-4 font-bold text-[var(--ink)]">${res.client_name}</td>
                     <td data-label="Contact" class="px-5 py-4 text-xs">${res.contact}</td>
-                    <td data-label="N° chambres" class="px-5 py-4 font-mono text-xs font-black text-[var(--ink)]">${res.room_numbers || 'N/A'}</td>
-                    <td data-label="Chambres" class="px-5 py-4 text-xs font-semibold">${res.rooms}</td>
-                    <td data-label="Séjour" class="px-5 py-4 text-xs">${res.check_in} - ${res.check_out}</td>
-                    <td data-label="Total fixe" class="px-5 py-4 font-bold text-[var(--muted)]">${formatMoney(res.fixed_total_price)}</td>
-                    <td data-label="Total encaissé" class="px-5 py-4 font-black text-[var(--ink)]">${formatMoney(res.paid_amount_ariary)}</td>
-                    <td data-label="Statut" class="px-5 py-4">${statusBadge(res.status, res.payment_status, res.cancelled_by_name, res.latest_payment_processed_by)}</td>
+                    <td data-label="Chambre(s)" class="px-5 py-4 text-xs">
+                        <div class="font-mono font-black text-[var(--ink)]">${res.room_numbers || 'N/A'}</div>
+                        <div class="mt-1 font-semibold text-[var(--muted)]">${res.rooms || 'N/A'}</div>
+                    </td>
+                    <td data-label="Séjour" class="px-5 py-4 text-xs">${formatStayRange(res.check_in, res.check_out)}</td>
+                    <td data-label="Pris par" class="px-5 py-4 text-xs">${actorText(res.receptionist)}</td>
+                    <td data-label="Check-in" class="px-5 py-4 text-xs">${checkInBadge(res)}</td>
+                    <td data-label="Paiement" class="px-5 py-4 text-xs">${paymentBadgeDetailed(res)}</td>
+                    <td data-label="Acompte" class="px-5 py-4 text-xs">${depositBadgeDetailed(res)}</td>
+                    <td data-label="Total" class="px-5 py-4 font-bold text-[var(--muted)]">${formatMoney(res.fixed_total_price)}</td>
+                    <td data-label="Reste à payer" class="px-5 py-4 font-black text-[var(--ink)]">${formatMoney(res.balance_amount_ariary)}</td>
                 `;
                 tableBody.appendChild(row);
             });

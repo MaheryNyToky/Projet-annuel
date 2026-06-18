@@ -59,9 +59,16 @@ class ReservationsListPage extends StatefulWidget {
 }
 
 class EditReservationPage extends StatefulWidget {
-  const EditReservationPage({super.key, required this.reservation});
+  const EditReservationPage({
+    super.key,
+    required this.reservation,
+    required this.userName,
+    required this.role,
+  });
 
   final Map<String, dynamic> reservation;
+  final String userName;
+  final String role;
 
   @override
   State<EditReservationPage> createState() => _EditReservationPageState();
@@ -83,6 +90,9 @@ class _EditReservationPageState extends State<EditReservationPage> {
   bool _isLoadingRooms = true;
   bool _isSaving = false;
   String? _errorMessage;
+
+  bool get _isPostCheckIn =>
+      (widget.reservation['status'] ?? '').toString() == 'arrive';
 
   @override
   void initState() {
@@ -118,6 +128,25 @@ class _EditReservationPageState extends State<EditReservationPage> {
     return [];
   }
 
+  void _sortRoomsBySelection(List<Map<String, dynamic>> rooms) {
+    rooms.sort((a, b) {
+      final aSelected = _selectedRooms.any(
+        (selected) => _asInt(selected['id']) == _asInt(a['id']),
+      );
+      final bSelected = _selectedRooms.any(
+        (selected) => _asInt(selected['id']) == _asInt(b['id']),
+      );
+
+      if (aSelected != bSelected) {
+        return aSelected ? -1 : 1;
+      }
+
+      return (a['room_number'] ?? '').toString().compareTo(
+        (b['room_number'] ?? '').toString(),
+      );
+    });
+  }
+
   String get _checkInKey => _checkIn.toIso8601String().substring(0, 10);
   String get _checkOutKey => _checkOut.toIso8601String().substring(0, 10);
 
@@ -147,11 +176,7 @@ class _EditReservationPageState extends State<EditReservationPage> {
           (room) => !availableIds.contains(_asInt(room['id'])),
         );
 
-        rooms.sort(
-          (a, b) => (a['room_number'] ?? '').toString().compareTo(
-            (b['room_number'] ?? '').toString(),
-          ),
-        );
+        _sortRoomsBySelection(rooms);
 
         if (mounted) {
           setState(() {
@@ -163,7 +188,15 @@ class _EditReservationPageState extends State<EditReservationPage> {
           });
         }
       } else if (mounted) {
-        setState(() => _errorMessage = 'Impossible de charger les chambres.');
+        final decoded = response.body.isNotEmpty
+            ? json.decode(response.body)
+            : null;
+        final message = decoded is Map && decoded['message'] != null
+            ? decoded['message'].toString()
+            : response.statusCode == 422
+            ? 'Dates de réservation invalides.'
+            : 'Impossible de charger les chambres.';
+        setState(() => _errorMessage = message);
       }
     } catch (e) {
       if (mounted) {
@@ -275,6 +308,8 @@ class _EditReservationPageState extends State<EditReservationPage> {
           roomIds: _selectedRooms.map((room) => _asInt(room['id'])).toList(),
           extraBeds: _extraBeds,
           extraMattresses: _extraMattresses,
+          modifiedByName: widget.userName,
+          modifiedByRole: widget.role,
         ),
       );
 
@@ -315,7 +350,11 @@ class _EditReservationPageState extends State<EditReservationPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Modifier la réservation')),
+      appBar: AppBar(
+        title: Text(
+          _isPostCheckIn ? 'Modifier les options' : 'Modifier la réservation',
+        ),
+      ),
       body: Row(
         children: [
           Expanded(
@@ -337,6 +376,7 @@ class _EditReservationPageState extends State<EditReservationPage> {
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _nameController,
+                      enabled: !_isPostCheckIn,
                       decoration: const InputDecoration(
                         labelText: 'Nom du client',
                         prefixIcon: Icon(Icons.person),
@@ -349,6 +389,7 @@ class _EditReservationPageState extends State<EditReservationPage> {
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _phoneController,
+                      enabled: !_isPostCheckIn,
                       keyboardType: TextInputType.text,
                       decoration: const InputDecoration(
                         labelText: 'Téléphone',
@@ -358,6 +399,7 @@ class _EditReservationPageState extends State<EditReservationPage> {
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _emailController,
+                      enabled: !_isPostCheckIn,
                       keyboardType: TextInputType.emailAddress,
                       decoration: const InputDecoration(
                         labelText: 'Email / Autre contact',
@@ -366,19 +408,31 @@ class _EditReservationPageState extends State<EditReservationPage> {
                     ),
                     const SizedBox(height: 12),
                     ListTile(
+                      enabled: !_isPostCheckIn,
                       contentPadding: EdgeInsets.zero,
                       leading: const Icon(Icons.login),
                       title: Text('Arrivée : $_checkInKey'),
                       trailing: const Icon(Icons.calendar_today),
-                      onTap: _pickCheckIn,
+                      onTap: _isPostCheckIn ? null : _pickCheckIn,
                     ),
                     ListTile(
+                      enabled: !_isPostCheckIn,
                       contentPadding: EdgeInsets.zero,
                       leading: const Icon(Icons.logout),
                       title: Text('Départ : $_checkOutKey'),
                       trailing: const Icon(Icons.calendar_today),
-                      onTap: _pickCheckOut,
+                      onTap: _isPostCheckIn ? null : _pickCheckOut,
                     ),
+                    if (_isPostCheckIn) ...[
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Après check-in, seules les chambres et les suppléments peuvent être modifiés.',
+                        style: TextStyle(
+                          color: _muted,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 12),
                     _QuantitySelector(
                       icon: Icons.bed_outlined,
@@ -503,13 +557,18 @@ class _EditReservationPageState extends State<EditReservationPage> {
                             onChanged: (value) {
                               setState(() {
                                 if (value == true) {
-                                  _selectedRooms.add(room);
+                                  _selectedRooms.removeWhere(
+                                    (selected) =>
+                                        _asInt(selected['id']) == roomId,
+                                  );
+                                  _selectedRooms.insert(0, room);
                                 } else {
                                   _selectedRooms.removeWhere(
                                     (selected) =>
                                         _asInt(selected['id']) == roomId,
                                   );
                                 }
+                                _sortRoomsBySelection(_availableRooms);
                               });
                             },
                           );
@@ -527,6 +586,7 @@ class _EditReservationPageState extends State<EditReservationPage> {
 }
 
 class _ReservationsListPageState extends State<ReservationsListPage> {
+  final _apiClient = const ApiClient();
   List<dynamic> _reservations = [];
   bool _isLoading = true;
   late DateTime _selectedDate;
@@ -636,40 +696,261 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
     }
   }
 
-  bool _isUpcomingReservation(Map<String, dynamic> reservation) {
-    final rawDate = reservation['check_out']?.toString();
-    if (rawDate == null || rawDate.isEmpty) return false;
-    final checkOut = DateTime.tryParse(rawDate);
-    if (checkOut == null) return false;
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final checkOutDate = DateTime(checkOut.year, checkOut.month, checkOut.day);
-    return checkOutDate.isAfter(today) || checkOutDate.isAtSameMomentAs(today);
+  bool _canEditReservation(Map<String, dynamic> reservation) {
+    final status = (reservation['status'] ?? '').toString();
+    return status == 'en_attente' || status == 'arrive';
   }
 
   Future<void> _openEditReservation(Map<String, dynamic> reservation) async {
     final updated = await Navigator.push<bool>(
       context,
-      _reservationRoute(EditReservationPage(reservation: reservation)),
+      _reservationRoute(
+        EditReservationPage(
+          reservation: reservation,
+          userName: widget.userName,
+          role: widget.role,
+        ),
+      ),
     );
     if (updated == true) {
       _fetchReservations();
     }
   }
 
-  Future<void> _openFolio(Map<String, dynamic> reservation) async {
-    final isAdmin = _isAdmin;
-    final isCheckedIn = (reservation['status'] ?? '').toString() == 'arrive';
-    if (!isAdmin && !isCheckedIn) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Le folio est accessible uniquement après check-in, sauf pour les administrateurs.',
+  Future<void> _openModificationDetails(
+    Map<String, dynamic> reservation,
+  ) async {
+    final details = reservation['last_action_details'];
+    if (details is! Map || details.isEmpty) return;
+
+    final entries = details.entries.toList()
+      ..sort((a, b) => a.key.toString().compareTo(b.key.toString()));
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Détails de la modification'),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Par ${reservation['last_action_by'] ?? 'N/A'}'
+                  '${(reservation['last_action_role'] ?? '').toString().isNotEmpty ? ' / ${reservation['last_action_role']}' : ''}'
+                  '${(reservation['last_action_at'] ?? '').toString().isNotEmpty ? ' • ${reservation['last_action_at']}' : ''}',
+                  style: const TextStyle(
+                    color: _muted,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ...entries.map((entry) {
+                  final value = entry.value;
+                  final before = value is Map ? value['before'] : null;
+                  final after = value is Map ? value['after'] : null;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _auditLabel(entry.key.toString()),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w900,
+                            color: _ink,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text('Avant : ${_auditValue(before)}'),
+                        Text('Après : ${_auditValue(after)}'),
+                      ],
+                    ),
+                  );
+                }),
+              ],
             ),
           ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Fermer'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _auditLabel(String key) {
+    return switch (key) {
+      'check_in' => 'Arrivée',
+      'check_out' => 'Départ',
+      'client_name' => 'Nom du client',
+      'customer_phone' => 'Téléphone',
+      'customer_email' => 'Email',
+      'extra_beds' => 'Lits supplémentaires',
+      'extra_mattresses' => 'Matelas supplémentaires',
+      'room_ids' => 'Chambres',
+      _ => key.replaceAll('_', ' '),
+    };
+  }
+
+  String _auditValue(dynamic value) {
+    if (value is List) {
+      return value.map((item) => item.toString()).join(', ');
+    }
+    if (value == null || value.toString().isEmpty) return 'N/A';
+    return value.toString();
+  }
+
+  Future<void> _submitDeposit({
+    required Map<String, dynamic> reservation,
+    required int amount,
+    required String paymentMethod,
+    required String reference,
+  }) async {
+    try {
+      final response = await _apiClient
+          .postJson('/api/reservations/${reservation['id']}/deposit', {
+            'amount_ariary': amount,
+            'payment_method': paymentMethod,
+            'reference': reference,
+            'processed_by_name': widget.userName,
+            'processed_by_role': widget.role,
+          });
+
+      if (!mounted) return;
+
+      final decoded = response.body.isNotEmpty
+          ? json.decode(response.body)
+          : null;
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Acompte enregistré.'),
+            backgroundColor: Colors.green,
+          ),
         );
+        _fetchReservations();
+        return;
       }
+
+      final message = decoded is Map && decoded['message'] != null
+          ? decoded['message'].toString()
+          : 'Erreur ${response.statusCode}';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message), backgroundColor: Colors.red),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erreur réseau : $e'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
+  }
+
+  Future<void> _openDepositDialog(Map<String, dynamic> reservation) async {
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) {
+        final amountController = TextEditingController();
+        final referenceController = TextEditingController();
+        String paymentMethod = 'Espèces';
+        const methods = [
+          'Espèces',
+          'Carte Bancaire',
+          'Mobile Money',
+          'Chèque',
+          'Virement',
+        ];
+
+        return AlertDialog(
+          title: const Text('Enregistrer un acompte'),
+          content: StatefulBuilder(
+            builder: (context, setDialogState) => SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: amountController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Montant de l’acompte (Ar)',
+                      prefixIcon: Icon(Icons.payments_outlined),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    initialValue: paymentMethod,
+                    decoration: const InputDecoration(
+                      labelText: 'Méthode de paiement',
+                      prefixIcon: Icon(Icons.credit_card),
+                    ),
+                    items: methods
+                        .map(
+                          (value) => DropdownMenuItem(
+                            value: value,
+                            child: Text(value),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) => setDialogState(
+                      () => paymentMethod = value ?? paymentMethod,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: referenceController,
+                    decoration: const InputDecoration(
+                      labelText: 'Référence (optionnel)',
+                      prefixIcon: Icon(Icons.tag),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Annuler'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final amount = int.tryParse(amountController.text.trim()) ?? 0;
+                if (amount <= 0) return;
+                Navigator.pop(context, {
+                  'amount_ariary': amount,
+                  'payment_method': paymentMethod,
+                  'reference': referenceController.text.trim(),
+                });
+              },
+              child: const Text('Valider'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (result == null) return;
+    await _submitDeposit(
+      reservation: reservation,
+      amount: result['amount_ariary'] as int,
+      paymentMethod: result['payment_method']?.toString() ?? 'Espèces',
+      reference: result['reference']?.toString() ?? '',
+    );
+  }
+
+  Future<void> _openFolio(Map<String, dynamic> reservation) async {
+    final isWaiting = (reservation['status'] ?? '').toString() == 'en_attente';
+    if (isWaiting) {
+      await _openDepositDialog(reservation);
       return;
     }
 
@@ -898,7 +1179,7 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                       final res = Map<String, dynamic>.from(
                         displayedReservations[index] as Map,
                       );
-                      final canEdit = _isUpcomingReservation(res);
+                      final canEdit = _canEditReservation(res);
                       final paymentStatus =
                           (res['payment_status'] ?? 'unbilled').toString();
                       return Card(
@@ -923,22 +1204,30 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                                       ),
                                     ),
                                   ),
-                                  if (canEdit)
+                                  if ((res['status'] ?? '').toString() !=
+                                      'annule')
                                     IconButton(
-                                      tooltip: 'Modifier',
-                                      onPressed: () =>
-                                          _openEditReservation(res),
-                                      icon: const Icon(Icons.edit_outlined),
+                                      tooltip:
+                                          (res['status'] ?? '').toString() ==
+                                              'arrive'
+                                          ? 'Folio'
+                                          : 'Acompte',
+                                      onPressed: () => _openFolio(res),
+                                      icon: Icon(
+                                        (res['status'] ?? '').toString() ==
+                                                'arrive'
+                                            ? Icons.receipt_long_outlined
+                                            : Icons.savings_outlined,
+                                      ),
                                       color: _primaryDark,
                                     ),
-                                  if (_isAdmin ||
-                                      (res['status'] ?? '').toString() ==
-                                          'arrive')
+                                  if (canEdit)
                                     IconButton(
-                                      tooltip: 'Folio',
-                                      onPressed: () => _openFolio(res),
+                                      tooltip: 'Modifier la réservation',
+                                      onPressed: () =>
+                                          _openEditReservation(res),
                                       icon: const Icon(
-                                        Icons.receipt_long_outlined,
+                                        Icons.edit_calendar_outlined,
                                       ),
                                       color: _primaryDark,
                                     ),
@@ -953,6 +1242,45 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                                   fontWeight: FontWeight.w800,
                                   fontSize: 12,
                                 ),
+                              ),
+                              const SizedBox(height: 4),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 6,
+                                children: [
+                                  if ((res['receptionist'] ?? '')
+                                          .toString()
+                                          .isNotEmpty &&
+                                      (res['receptionist'] ?? '').toString() !=
+                                          'N/A')
+                                    _MiniInfoChip(
+                                      label: 'Pris par ${res['receptionist']}',
+                                    ),
+                                  if ((res['last_action'] ?? '').toString() ==
+                                          'modified' &&
+                                      (res['last_action_by'] ?? '')
+                                          .toString()
+                                          .isNotEmpty)
+                                    InkWell(
+                                      onTap: () =>
+                                          _openModificationDetails(res),
+                                      borderRadius: BorderRadius.circular(999),
+                                      child: _MiniInfoChip(
+                                        label:
+                                            'Modifié par ${res['last_action_by']}',
+                                        accent: true,
+                                      ),
+                                    ),
+                                  if ((res['last_action'] ?? '').toString() ==
+                                          'check_in' &&
+                                      (res['last_action_by'] ?? '')
+                                          .toString()
+                                          .isNotEmpty)
+                                    _MiniInfoChip(
+                                      label:
+                                          'Check-in par ${res['last_action_by']}',
+                                    ),
+                                ],
                               ),
                               const SizedBox(height: 10),
                               Text(
@@ -989,8 +1317,18 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                               const SizedBox(height: 4),
                               _ReservationPaymentBadge(
                                 paymentStatus: paymentStatus,
-                                processedBy: res['latest_payment_processed_by']
-                                    ?.toString(),
+                                processedBy:
+                                    [
+                                          res['latest_payment_processed_by']
+                                              ?.toString(),
+                                          res['latest_payment_processed_by_role']
+                                              ?.toString(),
+                                        ]
+                                        .where(
+                                          (value) =>
+                                              value != null && value.isNotEmpty,
+                                        )
+                                        .join(' / '),
                               ),
                               const SizedBox(height: 10),
                               Row(
@@ -1047,6 +1385,8 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                                                           dynamic
                                                         >.from(res),
                                                       ),
+                                                  userName: widget.userName,
+                                                  role: widget.role,
                                                 ),
                                               ),
                                             );
@@ -1113,6 +1453,37 @@ class _StatusChip extends StatelessWidget {
           color: color,
           fontSize: 11,
           fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+}
+
+class _MiniInfoChip extends StatelessWidget {
+  const _MiniInfoChip({required this.label, this.accent = false});
+
+  final String label;
+  final bool accent;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: accent
+            ? _primary.withValues(alpha: 0.12)
+            : _border.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: accent ? _primary.withValues(alpha: 0.22) : _border,
+        ),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: accent ? _primaryDark : _muted,
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
         ),
       ),
     );

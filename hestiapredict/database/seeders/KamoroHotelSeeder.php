@@ -109,7 +109,7 @@ class KamoroHotelSeeder extends Seeder
             $reference = 'RES-' . strtoupper(bin2hex(random_bytes(3)));
             $resId = DB::table('reservations')->insertGetId([
                 'client_name' => $names[array_rand($names)] . ' ' . rand(10, 99),
-                'client_phone' => '+261 34 ' . rand(1000000, 9999999),
+                'client_phone' => sprintf('034%07d', rand(0, 9999999)),
                 'booking_reference' => $reference,
                 'user_id' => $receptionist->id,
                 'check_in_date' => $checkIn->toDateString(),
@@ -148,7 +148,7 @@ class KamoroHotelSeeder extends Seeder
             $reference = 'RES-' . strtoupper(bin2hex(random_bytes(3)));
             $resId = DB::table('reservations')->insertGetId([
                 'client_name' => 'Client Demain ' . $k,
-                'client_phone' => '+261 33 00 000 ' . $k,
+                'client_phone' => sprintf('03300000%02d', $k),
                 'booking_reference' => $reference,
                 'user_id' => $receptionist->id,
                 'check_in_date' => $tomorrow->toDateString(),
@@ -173,7 +173,7 @@ class KamoroHotelSeeder extends Seeder
             $reference = 'RES-' . strtoupper(bin2hex(random_bytes(3)));
             $resId = DB::table('reservations')->insertGetId([
                 'client_name' => $todayNames[$k],
-                'client_phone' => '+261 34 00 000 0' . $k,
+                'client_phone' => sprintf('03400000%02d', $k),
                 'booking_reference' => $reference,
                 'user_id' => $receptionist->id,
                 'check_in_date' => $today->toDateString(),

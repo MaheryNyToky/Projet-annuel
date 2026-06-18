@@ -23,6 +23,7 @@ class Invoice extends Model
         'pdf_path',
         'finalized_at',
         'status',
+        'document_type',
     ];
 
     protected $casts = [
