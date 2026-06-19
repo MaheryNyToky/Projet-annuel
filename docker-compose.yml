@@ -13,6 +13,7 @@ services:
       DB_CONNECTION: sqlite
       DB_DATABASE: /data/database.sqlite
       SESSION_DRIVER: file
+      SESSION_EXPIRE_ON_CLOSE: "true"
       CACHE_STORE: file
       QUEUE_CONNECTION: sync
       LOG_CHANNEL: stderr

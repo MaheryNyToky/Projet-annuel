@@ -1,33 +1,26 @@
-import 'dart:convert';
-
-import 'package:shared_preferences/shared_preferences.dart';
-
 import '../models/app_user.dart';
+import 'session_storage_stub.dart'
+    if (dart.library.html) 'session_storage_web.dart';
 
 class SessionService {
   static const String _sessionKey = 'user_session';
 
   Future<AppUser?> loadUser() async {
-    final prefs = await SharedPreferences.getInstance();
-    final userDataString = prefs.getString(_sessionKey);
+    final raw = readSessionValue(_sessionKey);
+    if (raw == null || raw.isEmpty) return null;
 
-    if (userDataString == null) return null;
-
-    try {
-      return AppUser.fromJson(json.decode(userDataString));
-    } catch (_) {
-      await prefs.remove(_sessionKey);
-      return null;
+    final user = appUserFromJson(raw);
+    if (user == null) {
+      clearSessionValue(_sessionKey);
     }
+    return user;
   }
 
   Future<void> saveUser(AppUser user) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_sessionKey, json.encode(user.toJson()));
+    writeSessionValue(_sessionKey, appUserToJson(user));
   }
 
   Future<void> clear() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_sessionKey);
+    clearSessionValue(_sessionKey);
   }
 }

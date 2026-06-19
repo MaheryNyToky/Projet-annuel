@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Kamoro Hotel - Tableau de bord</title>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -201,6 +202,12 @@
                                 <svg class="icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M7 4h10a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/><path stroke-linecap="round" stroke-linejoin="round" d="M9 18h6"/></svg>
                                 Réception
                             </a>
+                            <form method="POST" action="{{ route('dashboard.logout') }}">
+                                @csrf
+                                <button type="submit" class="pill-btn inline-flex items-center justify-center gap-2 bg-white px-5 text-sm font-bold text-[var(--ink)] transition hover:bg-[var(--sand-100)]">
+                                    Déconnexion
+                                </button>
+                            </form>
                             <div class="sand-panel rounded-full px-5 py-3" id="connection-status">
                                 <span class="block text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">Tarification dynamique</span>
                                 <span class="mt-1 flex items-center gap-2 text-sm font-semibold text-emerald-700" id="connection-text-container">
@@ -1410,6 +1417,14 @@
             });
         }
 
+        function forceLogoutOnLeave() {
+            const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+            if (!token) return;
+            const payload = new FormData();
+            payload.append('_token', token);
+            navigator.sendBeacon('{{ route('dashboard.logout') }}', payload);
+        }
+
         document.addEventListener('DOMContentLoaded', function() {
             const now = new Date();
             const today = now.toISOString().substring(0, 10);
@@ -1430,6 +1445,9 @@
 
             refreshAll();
         });
+
+        window.addEventListener('pagehide', forceLogoutOnLeave);
+        window.addEventListener('beforeunload', forceLogoutOnLeave);
     </script>
 </body>
 </html>

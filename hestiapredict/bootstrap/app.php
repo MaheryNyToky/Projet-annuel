@@ -13,6 +13,10 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->alias([
+            'dashboard.admin' => \App\Http\Middleware\EnsureAdminDashboard::class,
+        ]);
+        $middleware->redirectGuestsTo('/dashboard/login');
         $middleware->validateCsrfTokens(except: [
             'api/*'
         ]);
