@@ -11,6 +11,7 @@ from app.services.forecasting import (
     _multiplier_for_occupancy,
     _normalize_yield_strategy,
     _price_predictions,
+    _seasonal_occupancy_floor,
 )
 
 
@@ -69,6 +70,16 @@ class ForecastingPriceTest(unittest.TestCase):
         self.assertEqual(1.135, _multiplier_for_occupancy(90, rules))
         self.assertEqual(1.045, _multiplier_for_occupancy(30, rules))
         self.assertEqual(1.0, _multiplier_for_occupancy(1, rules))
+
+    def test_seasonal_occupancy_floor_is_higher_in_peak_summer_months(self):
+        july_floor = _seasonal_occupancy_floor(pd.Timestamp("2026-07-15"), 12)
+        august_floor = _seasonal_occupancy_floor(pd.Timestamp("2026-08-15"), 12)
+        november_floor = _seasonal_occupancy_floor(pd.Timestamp("2026-11-15"), 12)
+
+        self.assertGreaterEqual(july_floor, 10)
+        self.assertGreaterEqual(august_floor, 10)
+        self.assertLess(november_floor, july_floor)
+        self.assertGreater(november_floor, 1)
 
 
 if __name__ == "__main__":

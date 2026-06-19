@@ -236,7 +236,7 @@ class _CheckInPageState extends State<CheckInPage> {
       request.fields['checked_in_by_name'] = widget.userName;
       request.fields['checked_in_by_role'] = widget.role;
 
-      final streamedResponse = await request.send();
+      final streamedResponse = await request.send().timeout(const Duration(seconds: 8));
       final response = await http.Response.fromStream(streamedResponse);
 
       if (response.statusCode == 200 || response.statusCode == 201) {

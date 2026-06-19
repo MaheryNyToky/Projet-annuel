@@ -7,9 +7,28 @@ use App\Models\Room;
 use Carbon\Carbon;
 use Carbon\CarbonPeriod;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 
 class AvailabilityService
 {
+    private const CACHE_VERSION_KEY = 'dashboard:availability-cache-version';
+
+    public function invalidateCaches(): void
+    {
+        $current = (int) Cache::get(self::CACHE_VERSION_KEY, 1);
+        Cache::put(self::CACHE_VERSION_KEY, $current + 1);
+    }
+
+    private function cacheVersion(): int
+    {
+        return (int) Cache::get(self::CACHE_VERSION_KEY, 1);
+    }
+
+    public function getCacheVersion(): int
+    {
+        return $this->cacheVersion();
+    }
+
     public function occupiedRoomIdsForDate(string $date, array $statuses = Reservation::ACTIVE_STATUSES): Collection
     {
         return Room::query()
@@ -41,37 +60,55 @@ class AvailabilityService
     public function liveSummary(string $date): array
     {
         $occupiedRoomIds = $this->occupiedRoomIdsForDate($date)->all();
+        $cacheVersion = $this->cacheVersion();
 
-        return Room::query()
-            ->orderBy('type')
-            ->orderBy('model')
-            ->get()
-            ->groupBy(fn (Room $room) => $room->type . ' (' . $room->model . ')')
-            ->map(function (Collection $rooms) use ($occupiedRoomIds) {
-                $first = $rooms->first();
+        return Cache::remember(
+            "dashboard:live-availability:$cacheVersion:$date",
+            now()->addSeconds(45),
+            function () use ($occupiedRoomIds) {
+                return Room::query()
+                    ->orderBy('type')
+                    ->orderBy('model')
+                    ->get()
+                    ->groupBy(fn (Room $room) => $room->type . ' (' . $room->model . ')')
+                    ->map(function (Collection $rooms) use ($occupiedRoomIds) {
+                        $first = $rooms->first();
 
-                return [
-                    'type' => $first->type,
-                    'model' => $first->model,
-                    'base_price' => $first->base_price_ariary,
-                    'fixed_price' => $first->base_price_ariary,
-                    'is_fixed_price' => $rooms->every(fn (Room $room) => $room->is_fixed_price),
-                    'total' => $rooms->count(),
-                    'available' => $rooms->whereNotIn('id', $occupiedRoomIds)->count(),
-                ];
-            })
-            ->values()
-            ->all();
+                        return [
+                            'type' => $first->type,
+                            'model' => $first->model,
+                            'base_price' => $first->base_price_ariary,
+                            'fixed_price' => $first->base_price_ariary,
+                            'is_fixed_price' => $rooms->every(fn (Room $room) => $room->is_fixed_price),
+                            'total' => $rooms->count(),
+                            'available' => $rooms->whereNotIn('id', $occupiedRoomIds)->count(),
+                        ];
+                    })
+                    ->values()
+                    ->all();
+            }
+        );
     }
 
     public function availableRooms(string $checkIn, string $checkOut, ?int $excludeReservationId = null): Collection
     {
-        $busyRoomIds = $this->busyRoomIdsForPeriod($checkIn, $checkOut, Reservation::ACTIVE_STATUSES, $excludeReservationId);
+        $cacheVersion = $this->cacheVersion();
+        $cacheKey = sprintf(
+            'dashboard:available-rooms:%s:%s:%s:%d',
+            $checkIn,
+            $checkOut,
+            $excludeReservationId ?? 'none',
+            $cacheVersion
+        );
 
-        return Room::query()
-            ->whereNotIn('id', $busyRoomIds)
-            ->orderBy('room_number')
-            ->get();
+        return Cache::remember($cacheKey, now()->addSeconds(45), function () use ($checkIn, $checkOut, $excludeReservationId) {
+            $busyRoomIds = $this->busyRoomIdsForPeriod($checkIn, $checkOut, Reservation::ACTIVE_STATUSES, $excludeReservationId);
+
+            return Room::query()
+                ->whereNotIn('id', $busyRoomIds)
+                ->orderBy('room_number')
+                ->get();
+        });
     }
 
     public function occupiedRoomCount(string $date, array $statuses = Reservation::ACTIVE_STATUSES): int

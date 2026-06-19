@@ -9,6 +9,7 @@ use App\Models\ReservationAudit;
 use App\Models\Payment;
 use App\Models\Reservation;
 use App\Support\PhoneNumber;
+use App\Services\AvailabilityService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -25,6 +26,17 @@ class PMSController extends Controller
     private const TOURIST_TAX_PER_ROOM_NIGHT = 2000;
     private const EXTRA_BED_PRICE_ARIARY = 50000;
     private const EXTRA_MATTRESS_PRICE_ARIARY = 30000;
+    private const BOOKING_ROOM_PRICE_EUR = 32.5;
+    private const EXTRA_BED_PRICE_EUR = 10.0;
+    private const EXTRA_MATTRESS_PRICE_EUR = 6.0;
+    private const EUR_TO_ARIARY_RATE = 5000;
+    private static bool $hotelLogoLoaded = false;
+    private static ?string $hotelLogoDataUri = null;
+
+    public function __construct(
+        private readonly AvailabilityService $availabilityService,
+    ) {
+    }
 
     public function checkIn(Request $request, int $id): JsonResponse
     {
@@ -95,6 +107,8 @@ class PMSController extends Controller
             ];
         });
 
+        $this->availabilityService->invalidateCaches();
+
         return response()->json([
             'message' => 'Check-in réussi',
             ...$result,
@@ -104,6 +118,7 @@ class PMSController extends Controller
     public function getFolio(int $id): JsonResponse
     {
         $reservation = Reservation::with(['rooms', 'guest', 'invoice.items', 'invoice.payments'])->findOrFail($id);
+
         $invoice = $reservation->invoice ?: $this->ensureOpenFolio($reservation);
 
         return response()->json($this->folioPayload($invoice));
@@ -144,6 +159,7 @@ class PMSController extends Controller
         $validated = $request->validate([
             'amount_ariary' => 'required|integer|min:1',
             'payment_method' => 'required|string|in:Espèces,Carte Bancaire,Mobile Money,Chèque,Virement',
+            'payment_operator' => 'nullable|string|in:mvola,orange money,airtel money',
             'reference' => 'nullable|string|max:120',
             'processed_by_name' => 'nullable|string|max:120',
             'processed_by_role' => 'nullable|string|in:admin,receptionist',
@@ -176,6 +192,7 @@ class PMSController extends Controller
                 'invoice_id' => $invoice->id,
                 'amount_ariary' => $validated['amount_ariary'],
                 'payment_method' => $validated['payment_method'],
+                'payment_operator' => $validated['payment_operator'] ?? null,
                 'payment_context' => 'payment',
                 'reference' => $validated['reference'] ?? null,
                 'processed_by_name' => $validated['processed_by_name'] ?? null,
@@ -190,6 +207,7 @@ class PMSController extends Controller
                 'details' => [
                     'amount_ariary' => (int) $validated['amount_ariary'],
                     'payment_method' => $validated['payment_method'],
+                    'payment_operator' => $validated['payment_operator'] ?? null,
                     'reference' => $validated['reference'] ?? null,
                 ],
             ]);
@@ -209,6 +227,8 @@ class PMSController extends Controller
             ];
         });
 
+        $this->availabilityService->invalidateCaches();
+
         return response()->json([
             'message' => 'Paiement enregistré',
             ...$result,
@@ -220,6 +240,7 @@ class PMSController extends Controller
         $validated = $request->validate([
             'amount_ariary' => 'required|integer|min:1',
             'payment_method' => 'required|string|in:Espèces,Carte Bancaire,Mobile Money,Chèque,Virement',
+            'payment_operator' => 'nullable|string|in:mvola,orange money,airtel money',
             'reference' => 'nullable|string|max:120',
             'processed_by_name' => 'nullable|string|max:120',
             'processed_by_role' => 'nullable|string|in:admin,receptionist',
@@ -247,6 +268,7 @@ class PMSController extends Controller
                 'invoice_id' => $invoice->id,
                 'amount_ariary' => $validated['amount_ariary'],
                 'payment_method' => $validated['payment_method'],
+                'payment_operator' => $validated['payment_operator'] ?? null,
                 'payment_context' => 'deposit',
                 'reference' => $validated['reference'] ?? null,
                 'processed_by_name' => $validated['processed_by_name'] ?? null,
@@ -261,6 +283,7 @@ class PMSController extends Controller
                 'details' => [
                     'amount_ariary' => (int) $validated['amount_ariary'],
                     'payment_method' => $validated['payment_method'],
+                    'payment_operator' => $validated['payment_operator'] ?? null,
                     'reference' => $validated['reference'] ?? null,
                 ],
             ]);
@@ -280,6 +303,8 @@ class PMSController extends Controller
             ];
         });
 
+        $this->availabilityService->invalidateCaches();
+
         return response()->json([
             'message' => 'Acompte enregistré',
             ...$result,
@@ -294,8 +319,10 @@ class PMSController extends Controller
             'discount_value' => 'nullable|numeric|min:0',
             'actor_role' => 'nullable|string|in:admin,receptionist',
             'document_type' => 'nullable|in:facture,proforma',
+            'currency_mode' => 'nullable|in:ariary,euro',
         ]);
         $documentType = $validated['document_type'] ?? 'facture';
+        $currencyMode = $validated['currency_mode'] ?? 'ariary';
 
         if (
             ($validated['discount_mode'] ?? null) !== null
@@ -309,8 +336,13 @@ class PMSController extends Controller
         }
 
         $invoice = Invoice::with(['items', 'payments', 'reservation.guest', 'reservation.rooms'])->findOrFail($id);
+        if ($currencyMode === 'euro' && $invoice->reservation?->source !== 'Booking') {
+            return response()->json([
+                'message' => 'La facture en euro est réservée aux réservations Booking.',
+            ], 422);
+        }
 
-        DB::transaction(function () use ($invoice, $validated, $documentType) {
+        DB::transaction(function () use ($invoice, $validated, $documentType, $currencyMode) {
             $invoice->refresh();
             if (!$invoice->invoice_number) {
                 $invoice->invoice_number = $this->nextInvoiceNumber();
@@ -321,7 +353,7 @@ class PMSController extends Controller
                 'document_type' => $documentType,
             ]);
             $this->applyInvoiceDiscount($invoice, $validated['discount_mode'] ?? null, $validated['discount_value'] ?? null);
-            $this->ensureInvoicePdf($invoice->refresh()->load(['items', 'payments', 'reservation.guest', 'reservation.rooms']), $documentType);
+            $this->ensureInvoicePdf($invoice->refresh()->load(['items', 'payments', 'reservation.guest', 'reservation.rooms']), $documentType, $currencyMode);
         });
 
         return response()->json([
@@ -488,6 +520,7 @@ class PMSController extends Controller
             'invoice_number' => $invoice->invoice_number,
             'status' => $invoice->status,
             'document_type' => $invoice->document_type ?? 'facture',
+            'is_booking' => $invoice->reservation?->source === 'Booking',
             'total_amount_ariary' => (int) $invoice->total_amount_ariary,
             'discount_mode' => $invoice->discount_mode,
             'discount_value' => $invoice->discount_value,
@@ -512,6 +545,7 @@ class PMSController extends Controller
                 'id' => $payment->id,
                 'amount_ariary' => (int) $payment->amount_ariary,
                 'payment_method' => $payment->payment_method,
+                'payment_operator' => $payment->payment_operator,
                 'payment_context' => $payment->payment_context ?? 'payment',
                 'reference' => $payment->reference,
                 'processed_by_name' => $payment->processed_by_name,
@@ -521,7 +555,7 @@ class PMSController extends Controller
         ];
     }
 
-    private function invoiceHtml(Invoice $invoice, string $documentType = 'facture'): string
+    private function invoiceHtml(Invoice $invoice, string $documentType = 'facture', string $currencyMode = 'ariary'): string
     {
         $guestName = e($invoice->reservation->guest->full_name ?? $invoice->reservation->client_name);
         $contactParts = array_filter([
@@ -539,6 +573,20 @@ class PMSController extends Controller
         $subtotal = (int) $visibleItems->sum(fn (InvoiceItem $item) => $item->amount_ariary * $item->quantity);
         $discountAmount = (int) $invoice->discount_amount_ariary;
         $showDiscount = $discountAmount > 0;
+        $showEuro = $currencyMode === 'euro' && $invoice->reservation?->source === 'Booking';
+        $currencyLabel = $showEuro ? 'EUR' : 'Ar';
+        $unitHeader = $showEuro ? 'PU (EUR)' : 'PU (Ar)';
+        $totalHeader = $showEuro ? 'Total (EUR)' : 'Total (Ar)';
+        $amountHeader = $showEuro ? 'Montant (EUR)' : 'Montant (Ar)';
+        $displaySubtotal = $showEuro ? $this->invoiceAmountInEuro($visibleItems) : $subtotal;
+        $displayDiscount = $showEuro ? $this->ariaryToEuro($discountAmount) : $discountAmount;
+        $displayDeposit = $showEuro ? $this->ariaryToEuro($depositAmount) : $depositAmount;
+        $displayTotal = $showEuro ? max(0, $displaySubtotal - $displayDiscount) : $invoice->total_amount_ariary;
+        $displayPaid = $showEuro ? $this->ariaryToEuro($paidAmount) : $paidAmount;
+        $displayBalance = $showEuro ? max(0, $displayTotal - $displayPaid) : $balanceAmount;
+        $amountInWords = $showEuro
+            ? $this->formatMoney($displayTotal, $currencyLabel)
+            : e($this->amountInWords($invoice->total_amount_ariary)) . " (" . number_format($invoice->total_amount_ariary, 0, ',', ' ') . ") Ariary";
         $isProforma = $documentType === 'proforma';
         $documentLabel = $isProforma ? 'Facture proforma' : 'Facture de séjour';
         $amountLabel = $isProforma ? 'facture proforma' : 'facture';
@@ -556,12 +604,13 @@ class PMSController extends Controller
         $paymentRows = '';
 
         foreach ($visibleItems as $item) {
-            $lineTotal = $item->quantity * $item->amount_ariary;
+            $unitAmount = $showEuro ? $this->invoiceItemUnitAmountInEuro($item) : (float) $item->amount_ariary;
+            $lineTotal = $item->quantity * $unitAmount;
             $rows .= '<tr>'
                 . '<td>' . e($item->description) . '</td>'
                 . '<td>' . $item->quantity . '</td>'
-                . '<td>' . number_format($item->amount_ariary, 0, ',', ' ') . '</td>'
-                . '<td>' . number_format($lineTotal, 0, ',', ' ') . '</td>'
+                . '<td>' . $this->formatMoney($unitAmount, $currencyLabel, false) . '</td>'
+                . '<td>' . $this->formatMoney($lineTotal, $currencyLabel, false) . '</td>'
                 . '</tr>';
         }
 
@@ -569,14 +618,15 @@ class PMSController extends Controller
             $reference = $payment->reference ? e($payment->reference) : '-';
             $processedBy = $payment->processed_by_name ? e($payment->processed_by_name) : '-';
             $processedRole = $payment->processed_by_role ? e($payment->processed_by_role) : '-';
+            $operator = $payment->payment_operator ? ' / ' . e($payment->payment_operator) : '';
             $paymentContext = ($payment->payment_context ?? 'payment') === 'deposit' ? 'Acompte' : 'Paiement';
             $paymentRows .= '<tr>'
                 . '<td>' . optional($payment->created_at)->format('d/m/Y H:i') . '</td>'
-                . '<td>' . e($payment->payment_method) . '</td>'
+                . '<td>' . e($payment->payment_method) . $operator . '</td>'
                 . '<td>' . $paymentContext . '</td>'
                 . '<td>' . $processedBy . ' (' . $processedRole . ')</td>'
                 . '<td>' . $reference . '</td>'
-                . '<td>' . number_format($payment->amount_ariary, 0, ',', ' ') . '</td>'
+                . '<td>' . $this->formatMoney($showEuro ? $this->ariaryToEuro((int) $payment->amount_ariary) : (float) $payment->amount_ariary, $currencyLabel, false) . '</td>'
                 . '</tr>';
         }
 
@@ -648,22 +698,22 @@ class PMSController extends Controller
                         <td>
                             <div class='box'>
                                 <div class='box-title'>Récapitulatif</div>
-                                Total prestations: " . number_format($subtotal, 0, ',', ' ') . " Ar<br>
-                                " . ($showDiscount ? 'Remise: ' . number_format($discountAmount, 0, ',', ' ') . ' Ar' : '') . "
+                                Total prestations: " . $this->formatMoney($displaySubtotal, $currencyLabel) . "<br>
+                                " . ($showDiscount ? 'Remise: ' . $this->formatMoney($displayDiscount, $currencyLabel) : '') . "
                             </div>
                         </td>
                     </tr>
                 </table>
                 <table class='lines'>
                     <thead>
-                        <tr><th>Description</th><th class='num'>Qté</th><th class='num'>PU (Ar)</th><th class='num'>Total (Ar)</th></tr>
+                        <tr><th>Description</th><th class='num'>Qté</th><th class='num'>{$unitHeader}</th><th class='num'>{$totalHeader}</th></tr>
                     </thead>
                     <tbody>{$rows}</tbody>
                 </table>
                 <div class='section-title'>Paiements</div>
                 <table class='lines'>
                     <thead>
-                        <tr><th>Date</th><th>Méthode</th><th>Type</th><th>Traité par</th><th>Référence</th><th class='num'>Montant (Ar)</th></tr>
+                        <tr><th>Date</th><th>Méthode</th><th>Type</th><th>Traité par</th><th>Référence</th><th class='num'>{$amountHeader}</th></tr>
                     </thead>
                     <tbody>{$paymentRows}</tbody>
                 </table>
@@ -671,41 +721,77 @@ class PMSController extends Controller
                     <div class='summary'>
                         <div class='summary-row'>
                             <div class='label'>Sous-total</div>
-                            <div class='value'>" . number_format($subtotal, 0, ',', ' ') . " Ar</div>
+                            <div class='value'>" . $this->formatMoney($displaySubtotal, $currencyLabel) . "</div>
                         </div>
                         " . ($depositAmount > 0 ? "
                         <div class='summary-row deposit'>
                             <div class='label'>Acompte versé</div>
-                            <div class='value'>- " . number_format($depositAmount, 0, ',', ' ') . " Ar</div>
+                            <div class='value'>- " . $this->formatMoney($displayDeposit, $currencyLabel) . "</div>
                         </div>
                         " : '') . "
                         " . ($showDiscount ? "
                         <div class='summary-row discount'>
                             <div class='label'>Remise</div>
-                            <div class='value'>- " . number_format($discountAmount, 0, ',', ' ') . " Ar</div>
+                            <div class='value'>- " . $this->formatMoney($displayDiscount, $currencyLabel) . "</div>
                         </div>
                         " : '') . "
                         <div class='summary-row total'>
                             <div class='label'>Total facture</div>
-                            <div class='value'>" . number_format($invoice->total_amount_ariary, 0, ',', ' ') . " Ar</div>
+                            <div class='value'>" . $this->formatMoney($displayTotal, $currencyLabel) . "</div>
                         </div>
                         <div class='summary-row'>
                             <div class='label'>Total payé</div>
-                            <div class='value'>" . number_format($paidAmount, 0, ',', ' ') . " Ar</div>
+                            <div class='value'>" . $this->formatMoney($displayPaid, $currencyLabel) . "</div>
                         </div>
                         <div class='summary-row total'>
                             <div class='label'>Reste à payer</div>
-                            <div class='value'>" . number_format($balanceAmount, 0, ',', ' ') . " Ar</div>
+                            <div class='value'>" . $this->formatMoney($displayBalance, $currencyLabel) . "</div>
                         </div>
                     </div>
                 </div>
-                " . ($depositAmount > 0 ? "<div class='deposit-note'>Acompte déjà versé : " . number_format($depositAmount, 0, ',', ' ') . " Ar</div>" : '') . "
+                " . ($depositAmount > 0 ? "<div class='deposit-note'>Acompte déjà versé : " . $this->formatMoney($displayDeposit, $currencyLabel) . "</div>" : '') . "
                 <div style='margin-top: 18px; font-weight: bold; text-transform: uppercase;'>
-                    Arrêtée la présente {$amountLabel} à la somme de : " . e($this->amountInWords($invoice->total_amount_ariary)) . " (" . number_format($invoice->total_amount_ariary, 0, ',', ' ') . ") Ariary
+                    Arrêtée la présente {$amountLabel} à la somme de : {$amountInWords}
                 </div>
             </body>
             </html>
         ";
+    }
+
+    private function invoiceAmountInEuro(iterable $items): float
+    {
+        $total = 0.0;
+        foreach ($items as $item) {
+            $total += $this->invoiceItemUnitAmountInEuro($item) * (int) $item->quantity;
+        }
+
+        return $total;
+    }
+
+    private function invoiceItemUnitAmountInEuro(InvoiceItem $item): float
+    {
+        if ($item->type === 'room') {
+            return self::BOOKING_ROOM_PRICE_EUR;
+        }
+
+        return match ($item->description) {
+            'Lit supplémentaire' => self::EXTRA_BED_PRICE_EUR,
+            'Matelas supplémentaire' => self::EXTRA_MATTRESS_PRICE_EUR,
+            default => $this->ariaryToEuro((int) $item->amount_ariary),
+        };
+    }
+
+    private function ariaryToEuro(int $amount): float
+    {
+        return $amount / self::EUR_TO_ARIARY_RATE;
+    }
+
+    private function formatMoney(float|int $amount, string $currency, bool $withCurrency = true): string
+    {
+        $decimals = $currency === 'EUR' ? 2 : 0;
+        $formatted = number_format((float) $amount, $decimals, ',', ' ');
+
+        return $withCurrency ? "{$formatted} {$currency}" : $formatted;
     }
 
     private function amountInWords(int $amount): string
@@ -717,6 +803,11 @@ class PMSController extends Controller
 
     private function hotelLogoDataUri(): ?string
     {
+        if (self::$hotelLogoLoaded) {
+            return self::$hotelLogoDataUri;
+        }
+
+        self::$hotelLogoLoaded = true;
         $root = dirname(base_path());
         $matches = glob($root . DIRECTORY_SEPARATOR . 'Capture*.png');
         $logoPath = $matches[0] ?? null;
@@ -725,10 +816,12 @@ class PMSController extends Controller
         }
 
         $mime = mime_content_type($logoPath) ?: 'image/png';
-        return 'data:' . $mime . ';base64,' . base64_encode(file_get_contents($logoPath));
+        self::$hotelLogoDataUri = 'data:' . $mime . ';base64,' . base64_encode(file_get_contents($logoPath));
+
+        return self::$hotelLogoDataUri;
     }
 
-    private function ensureInvoicePdf(Invoice $invoice, string $documentType = 'facture'): void
+    private function ensureInvoicePdf(Invoice $invoice, string $documentType = 'facture', string $currencyMode = 'ariary'): void
     {
         $invoice->refresh();
         if (!$invoice->invoice_number) {
@@ -737,7 +830,7 @@ class PMSController extends Controller
         }
 
         $invoice->load(['items', 'payments', 'reservation.guest', 'reservation.rooms']);
-        $pdf = Pdf::loadHTML($this->invoiceHtml($invoice, $documentType));
+        $pdf = Pdf::loadHTML($this->invoiceHtml($invoice, $documentType, $currencyMode));
         $path = "invoices/{$invoice->invoice_number}.pdf";
         Storage::disk('local')->put($path, $pdf->output());
 

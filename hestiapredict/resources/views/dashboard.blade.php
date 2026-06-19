@@ -514,6 +514,59 @@
             return `${Math.round(value || 0).toLocaleString()} Ar`;
         }
 
+        function cacheKeyFor(url, extra = '') {
+            return `hestia-dashboard:${url}${extra ? `:${extra}` : ''}`;
+        }
+
+        function readCache(key) {
+            try {
+                const value = localStorage.getItem(key);
+                return value ? JSON.parse(value) : null;
+            } catch (_) {
+                return null;
+            }
+        }
+
+        function writeCache(key, value) {
+            try {
+                localStorage.setItem(key, JSON.stringify(value));
+            } catch (_) {
+                // Ignore storage quota / privacy errors.
+            }
+        }
+
+        async function safeFetchJson(url, cacheKey = null, options = {}) {
+            const controller = new AbortController();
+            const timeoutMs = options.timeoutMs ?? 4000;
+            const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+            const fetchOptions = {
+                ...options.fetchOptions,
+                signal: controller.signal,
+            };
+
+            try {
+                const response = await fetch(url, fetchOptions);
+                clearTimeout(timeoutId);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const data = await response.json();
+                if (cacheKey) {
+                    writeCache(cacheKey, data);
+                }
+                return { data, fromCache: false, online: true };
+            } catch (error) {
+                clearTimeout(timeoutId);
+                if (cacheKey) {
+                    const cached = readCache(cacheKey);
+                    if (cached) {
+                        return { data: cached, fromCache: true, online: false, error };
+                    }
+                }
+                throw error;
+            }
+        }
+
         function switchTab(tabId) {
             document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
             document.querySelectorAll('.pill-btn').forEach(el => {
@@ -566,16 +619,18 @@
         function loadAILogic() {
             const daysSelected = document.getElementById('prediction-days').value;
             const pricingDate = document.getElementById('global-date').value;
+            const cacheKey = cacheKeyFor('/api/dashboard/predictions', `${daysSelected}:${pricingDate}`);
 
-            fetch(`/api/dashboard/predictions?days=${daysSelected}&start_date=${pricingDate}`)
-                .then(response => response.json())
-                .then(data => {
+            safeFetchJson(`/api/dashboard/predictions?days=${daysSelected}&start_date=${pricingDate}`, cacheKey, {
+                timeoutMs: 4500,
+            })
+                .then(({ data, fromCache, online }) => {
                     if (data.status !== 'success') {
                         updateConnectionState(true);
                         return;
                     }
 
-                    updateConnectionState(Boolean(data.is_fallback));
+                    updateConnectionState(Boolean(data.is_fallback || fromCache || !online));
 
                     const tableBody = document.getElementById('pricing-table-body');
                     tableBody.innerHTML = '';
@@ -698,11 +753,21 @@
 
         function loadReservations() {
             const date = document.getElementById('global-date').value;
-            fetch(`/api/active-reservations?date=${date}`)
-                .then(response => response.json())
-                .then(data => {
+            const cacheKey = cacheKeyFor('/api/active-reservations', date);
+            safeFetchJson(`/api/active-reservations?date=${date}`, cacheKey, { timeoutMs: 4000 })
+                .then(({ data, fromCache }) => {
                     allReservationsData = data;
                     renderReservationsTable(data);
+                    if (fromCache) {
+                        const summary = document.getElementById('reservations-table-summary');
+                        if (summary) {
+                            summary.textContent = 'Données locales affichées en mode dégradé.';
+                        }
+                    }
+                })
+                .catch(() => {
+                    allReservationsData = [];
+                    renderReservationsTable([]);
                 });
         }
 
@@ -875,8 +940,12 @@
             const paid = Number(res.paid_amount_ariary || 0);
             const status = (res.payment_status || '').toString();
             const actor = actorText(res.latest_payment_processed_by, res.latest_payment_processed_by_role);
+            const operator = (res.latest_payment_operator || '').toString().trim();
+            const methodLine = operator && (res.latest_payment_method || '').toString() === 'Mobile Money'
+                ? `${methods || res.latest_payment_method || 'N/A'} / ${operator}`
+                : (methods || res.latest_payment_method || 'N/A');
 
-            if (!methods && actor === 'N/A' && !paid) {
+            if (!methodLine && actor === 'N/A' && !paid) {
                 return infoPill('N/A');
             }
 
@@ -886,7 +955,7 @@
 
             return `
                 <div class="flex flex-col gap-1">
-                    <span class="font-black text-[var(--ink)]">${methods || 'N/A'}</span>
+                    <span class="font-black text-[var(--ink)]">${methodLine}</span>
                     <span class="text-[11px] font-semibold text-[var(--muted)]">${statusLabel} · ${formatMoney(paid)}${actor !== 'N/A' ? ` · ${actor}` : ''}</span>
                 </div>
             `;
@@ -895,7 +964,11 @@
         function depositBadgeDetailed(res) {
             const methods = (res.latest_deposit_method || '').toString().trim();
             const actor = actorText(res.latest_deposit_processed_by, res.latest_deposit_processed_by_role);
+            const operator = (res.latest_deposit_operator || '').toString().trim();
             const depositAmount = Number(res.deposit_amount_ariary || 0);
+            const methodLine = operator && methods === 'Mobile Money'
+                ? `${methods} / ${operator}`
+                : (methods || 'N/A');
 
             if (!methods && actor === 'N/A' && !depositAmount) {
                 return infoPill('N/A');
@@ -903,7 +976,7 @@
 
             return `
                 <div class="flex flex-col gap-1">
-                    <span class="font-black text-[var(--ink)]">${methods || 'N/A'}</span>
+                    <span class="font-black text-[var(--ink)]">${methodLine}</span>
                     <span class="text-[11px] font-semibold text-[var(--muted)]">Acompte ${formatMoney(depositAmount)}${actor !== 'N/A' ? ` · ${actor}` : ''}</span>
                 </div>
             `;
@@ -1051,9 +1124,12 @@
                 summary.textContent = 'Recherche en cours...';
             }
 
-            fetch(`/api/dashboard/client-history?q=${encodeURIComponent(query)}`)
-                .then(response => response.json())
-                .then(data => {
+            const cacheKey = cacheKeyFor('/api/dashboard/client-history', query.toLowerCase());
+
+            safeFetchJson(`/api/dashboard/client-history?q=${encodeURIComponent(query)}`, cacheKey, {
+                timeoutMs: 4500,
+            })
+                .then(({ data, fromCache }) => {
                     if (data.status !== 'success') {
                         clientHistoryData = [];
                         if (summary) {
@@ -1067,6 +1143,9 @@
 
                     clientHistoryData = data.data || [];
                     renderClientHistoryTable(query, clientHistoryData);
+                    if (fromCache && summary) {
+                        summary.textContent += ' Données locales affichées.';
+                    }
                 })
                 .catch(() => {
                     clientHistoryData = [];
@@ -1174,9 +1253,19 @@
         function loadAiRevenueSummary() {
             const daysSelected = document.getElementById('prediction-days').value;
             const pricingDate = document.getElementById('global-date').value;
-            fetch(`/api/dashboard/ai-revenue-summary?days=${daysSelected}&start_date=${pricingDate}`)
-                .then(response => response.json())
-                .then(renderAiRevenueSummary)
+            const cacheKey = cacheKeyFor('/api/dashboard/ai-revenue-summary', `${daysSelected}:${pricingDate}`);
+            safeFetchJson(`/api/dashboard/ai-revenue-summary?days=${daysSelected}&start_date=${pricingDate}`, cacheKey, {
+                timeoutMs: 5000,
+            })
+                .then(({ data, fromCache }) => {
+                    renderAiRevenueSummary(data);
+                    if (fromCache) {
+                        const tableBody = document.getElementById('ai-summary-table-body');
+                        if (tableBody && !tableBody.children.length) {
+                            tableBody.innerHTML = '<tr><td colspan="5" class="px-5 py-8 text-center text-[var(--muted)]">Mode dégradé actif.</td></tr>';
+                        }
+                    }
+                })
                 .catch(() => {
                     const tableBody = document.getElementById('ai-summary-table-body');
                     if (tableBody) {
@@ -1217,9 +1306,9 @@
 
         function runAudit() {
             const dateSelected = document.getElementById('global-date').value;
-            fetch(`/api/dashboard/audit-date?date=${dateSelected}`)
-                .then(response => response.json())
-                .then(data => {
+            const cacheKey = cacheKeyFor('/api/dashboard/audit-date', dateSelected);
+            safeFetchJson(`/api/dashboard/audit-date?date=${dateSelected}`, cacheKey, { timeoutMs: 3500 })
+                .then(({ data }) => {
                     if (data.status !== 'success') {
                         return;
                     }
@@ -1244,6 +1333,16 @@
                     document.getElementById('finance-adr').innerText = formatMoney(adr);
                     document.getElementById('finance-revpar').innerText = formatMoney(revpar);
                     updateFinanceChart(data);
+                })
+                .catch(() => {
+                    const cached = readCache(cacheKey);
+                    if (!cached || cached.status !== 'success') return;
+                    document.getElementById('stat-ca-official').innerText = formatMoney(cached.daily_ca_official);
+                    document.getElementById('stat-ca-pending').innerText = formatMoney(cached.daily_ca_pending);
+                    document.getElementById('stat-ca-total').innerText = formatMoney(cached.total_ca);
+                    document.getElementById('stat-rooms-confirmed').innerText = cached.rooms_confirmed || 0;
+                    document.getElementById('stat-rooms-estimated').innerText = cached.rooms_estimated || 0;
+                    document.getElementById('ca-period').innerText = cached.period;
                 });
         }
 

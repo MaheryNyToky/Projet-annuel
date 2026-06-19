@@ -4,6 +4,8 @@ namespace App\Services;
 
 use App\Models\Reservation;
 use App\Models\Room;
+use Carbon\Carbon;
+use Carbon\CarbonPeriod;
 use GuzzleHttp\Client;
 use Illuminate\Support\Collection;
 
@@ -128,15 +130,26 @@ class YieldService
     private function historyData(): array
     {
         return Reservation::query()
-            ->with('rooms')
+            ->select(['id', 'check_in_date', 'check_out_date', 'status'])
+            ->with('rooms:id,type,model')
             ->whereIn('status', Reservation::ACTIVE_STATUSES)
             ->get()
             ->flatMap(function (Reservation $reservation) {
-                return $reservation->rooms->map(fn (Room $room) => [
-                    'date' => $reservation->check_in_date->toDateString(),
-                    'room_type' => $room->identifier,
-                    'room_id' => $room->id,
-                ]);
+                $rows = [];
+                $start = Carbon::parse($reservation->check_in_date)->startOfDay();
+                $end = Carbon::parse($reservation->check_out_date)->startOfDay();
+
+                foreach (CarbonPeriod::create($start, $end->copy()->subDay()) as $date) {
+                    foreach ($reservation->rooms as $room) {
+                        $rows[] = [
+                            'date' => $date->toDateString(),
+                            'room_type' => $room->identifier,
+                            'room_id' => $room->id,
+                        ];
+                    }
+                }
+
+                return $rows;
             })
             ->groupBy(fn (array $item) => $item['date'] . '|' . $item['room_type'])
             ->map(function (Collection $items) {

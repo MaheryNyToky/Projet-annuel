@@ -8,6 +8,7 @@ use App\Models\Reservation;
 use App\Models\Room;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Tests\TestCase;
 
 class ClientHistorySearchTest extends TestCase
@@ -16,6 +17,8 @@ class ClientHistorySearchTest extends TestCase
 
     public function test_client_history_search_returns_past_present_and_future_reservations(): void
     {
+        Carbon::setTestNow(Carbon::parse('2026-06-17 12:00:00'));
+
         $user = User::create([
             'name' => 'Reception Test',
             'email' => 'reception-test@example.com',
@@ -71,6 +74,12 @@ class ClientHistorySearchTest extends TestCase
         $response->assertJsonPath('data.0.invoice_number', null);
         $this->assertSame($past->id, (int) $response->json('data.2.id'));
         $this->assertSame($future->id, (int) $response->json('data.0.id'));
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        parent::tearDown();
     }
 
     private function createReservation(int $userId, int $roomId, string $clientName, string $checkIn, string $checkOut): Reservation

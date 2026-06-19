@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:printing/printing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../core/app_config.dart';
@@ -40,14 +41,23 @@ class _FolioPageState extends State<FolioPage> {
   bool _isLoading = true;
   bool _isBusy = false;
   String _documentType = 'facture';
+  bool _bookingInvoiceInEuro = false;
 
   int get _reservationId => _asInt(widget.reservation['id']);
   int get _invoiceId => _asInt(_folio?['id']);
   bool get _isFinalized => _folio?['status'] == 'finalized';
   bool get _hasPdf => (_folio?['pdf_url'] ?? '').toString().isNotEmpty;
+  bool get _isBookingReservation {
+    final folioFlag = _folio?['is_booking'];
+    final reservationFlag = widget.reservation['is_booking'];
+    final source = widget.reservation['source']?.toString();
+
+    return folioFlag == true || reservationFlag == true || source == 'Booking';
+  }
+
   bool get _canAccess =>
       widget.role == 'admin' ||
-      widget.reservation['status']?.toString() != 'annule';
+      widget.reservation['status']?.toString() == 'arrive';
 
   @override
   void initState() {
@@ -64,21 +74,47 @@ class _FolioPageState extends State<FolioPage> {
     }
 
     setState(() => _isLoading = true);
+    final cacheKey = 'folio_cache:$_reservationId';
     try {
-      final response = await http.get(
-        Uri.parse('$baseUrl/api/reservations/$_reservationId/folio'),
-      );
+      final response = await http
+          .get(Uri.parse('$baseUrl/api/reservations/$_reservationId/folio'))
+          .timeout(const Duration(seconds: 5));
       if (!mounted) return;
       if (response.statusCode == 200) {
+        final payload = Map<String, dynamic>.from(json.decode(response.body));
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(cacheKey, json.encode(payload));
         setState(() {
-          _folio = Map<String, dynamic>.from(json.decode(response.body));
+          _folio = payload;
           _documentType = (_folio?['document_type'] ?? 'facture').toString();
         });
       } else {
-        _showMessage('Impossible de charger le folio.', isError: true);
+        final prefs = await SharedPreferences.getInstance();
+        final cached = prefs.getString(cacheKey);
+        if (cached != null) {
+          setState(() {
+            _folio = Map<String, dynamic>.from(json.decode(cached));
+            _documentType = (_folio?['document_type'] ?? 'facture').toString();
+          });
+          _showMessage('Mode dégradé: folio local affiché.', isError: false);
+        } else {
+          _showMessage('Impossible de charger le folio.', isError: true);
+        }
       }
     } catch (e) {
-      if (mounted) _showMessage('Erreur réseau : $e', isError: true);
+      final prefs = await SharedPreferences.getInstance();
+      final cached = prefs.getString(cacheKey);
+      if (cached != null) {
+        if (mounted) {
+          setState(() {
+            _folio = Map<String, dynamic>.from(json.decode(cached));
+            _documentType = (_folio?['document_type'] ?? 'facture').toString();
+          });
+          _showMessage('Mode dégradé: folio local affiché.', isError: false);
+        }
+      } else if (mounted) {
+        _showMessage('Erreur réseau : $e', isError: true);
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -112,6 +148,9 @@ class _FolioPageState extends State<FolioPage> {
     final payload = <String, dynamic>{
       'pricing_mode': widget.pricingMode,
       'document_type': _documentType,
+      'currency_mode': _isBookingReservation && _bookingInvoiceInEuro
+          ? 'euro'
+          : 'ariary',
     };
 
     if (widget.role == 'admin' && discountValue > 0) {
@@ -314,6 +353,7 @@ class _FolioPageState extends State<FolioPage> {
     );
     final referenceController = TextEditingController();
     String method = 'Espèces';
+    String operator = 'mvola';
     const methods = [
       'Espèces',
       'Carte Bancaire',
@@ -321,6 +361,7 @@ class _FolioPageState extends State<FolioPage> {
       'Chèque',
       'Virement',
     ];
+    const operators = ['mvola', 'orange money', 'airtel money'];
 
     return showDialog<Map<String, dynamic>>(
       context: context,
@@ -352,9 +393,33 @@ class _FolioPageState extends State<FolioPage> {
                             DropdownMenuItem(value: value, child: Text(value)),
                       )
                       .toList(),
-                  onChanged: (value) =>
-                      setDialogState(() => method = value ?? method),
+                  onChanged: (value) => setDialogState(() {
+                    method = value ?? method;
+                    if (method != 'Mobile Money') {
+                      operator = 'mvola';
+                    }
+                  }),
                 ),
+                if (method == 'Mobile Money') ...[
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    initialValue: operator,
+                    decoration: const InputDecoration(
+                      labelText: 'Opérateur',
+                      prefixIcon: Icon(Icons.phone_android),
+                    ),
+                    items: operators
+                        .map(
+                          (value) => DropdownMenuItem(
+                            value: value,
+                            child: Text(value),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) =>
+                        setDialogState(() => operator = value ?? operator),
+                  ),
+                ],
                 const SizedBox(height: 12),
                 TextField(
                   controller: referenceController,
@@ -378,6 +443,9 @@ class _FolioPageState extends State<FolioPage> {
                 Navigator.pop(context, {
                   'amount_ariary': amount,
                   'payment_method': method,
+                  'payment_operator': method == 'Mobile Money'
+                      ? operator
+                      : null,
                   'reference': referenceController.text.trim(),
                 });
               },
@@ -463,7 +531,7 @@ class _FolioPageState extends State<FolioPage> {
                 const Icon(Icons.lock_outline, size: 48, color: _muted),
                 const SizedBox(height: 12),
                 const Text(
-                  'Le folio est accessible dès la réservation, sauf pour les dossiers annulés.',
+                  'Le folio est réservé après le check-in, sauf pour les administrateurs.',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontWeight: FontWeight.w700),
                 ),
@@ -585,6 +653,22 @@ class _FolioPageState extends State<FolioPage> {
                             onSelectionChanged: (selection) =>
                                 setState(() => _documentType = selection.first),
                           ),
+                          if (_isBookingReservation) ...[
+                            const SizedBox(height: 12),
+                            SwitchListTile(
+                              value: _bookingInvoiceInEuro,
+                              contentPadding: EdgeInsets.zero,
+                              title: const Text('Facture Booking en euro'),
+                              subtitle: const Text(
+                                '32,50 EUR/chambre, options 10 EUR et 6 EUR',
+                              ),
+                              onChanged: _isBusy
+                                  ? null
+                                  : (value) => setState(
+                                      () => _bookingInvoiceInEuro = value,
+                                    ),
+                            ),
+                          ],
                           const SizedBox(height: 12),
                           ElevatedButton.icon(
                             onPressed: _isBusy ? null : _generatePdf,
@@ -962,6 +1046,10 @@ class _PaymentTile extends StatelessWidget {
           [
             contextLabel,
             payment['payment_method']?.toString(),
+            payment['payment_method']?.toString() == 'Mobile Money' &&
+                    (payment['payment_operator'] ?? '').toString().isNotEmpty
+                ? payment['payment_operator'].toString()
+                : null,
             [
               payment['processed_by_name']?.toString(),
               payment['processed_by_role']?.toString(),

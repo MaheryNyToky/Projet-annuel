@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/app_config.dart';
 import '../core/formatters.dart';
@@ -77,7 +78,7 @@ class EditReservationPage extends StatefulWidget {
 class _EditReservationPageState extends State<EditReservationPage> {
   final _apiClient = const ApiClient();
   final _formKey = GlobalKey<FormState>();
-  late final Reservation _reservation;
+  late Reservation _reservation;
   late final TextEditingController _nameController;
   late final TextEditingController _phoneController;
   late final TextEditingController _emailController;
@@ -85,8 +86,12 @@ class _EditReservationPageState extends State<EditReservationPage> {
   late DateTime _checkOut;
   late int _extraBeds;
   late int _extraMattresses;
+  int _remainingExtraBeds = 6;
+  int _remainingExtraMattresses = 6;
   final List<Map<String, dynamic>> _selectedRooms = [];
+  final Set<int> _initialRoomIds = {};
   List<Map<String, dynamic>> _availableRooms = [];
+  String _roomSearchQuery = '';
   bool _isLoadingRooms = true;
   bool _isSaving = false;
   String? _errorMessage;
@@ -106,7 +111,8 @@ class _EditReservationPageState extends State<EditReservationPage> {
     _extraBeds = _reservation.extraBeds;
     _extraMattresses = _reservation.extraMattresses;
     _selectedRooms.addAll(_initialRooms());
-    _fetchRooms();
+    _seedInitialRoomIds();
+    _refreshReservationSnapshot();
   }
 
   @override
@@ -119,6 +125,83 @@ class _EditReservationPageState extends State<EditReservationPage> {
 
   List<Map<String, dynamic>> _initialRooms() {
     final details = widget.reservation['room_details'];
+    if (details is List) {
+      return details
+          .whereType<Map>()
+          .map((room) => Map<String, dynamic>.from(room))
+          .toList();
+    }
+    return [];
+  }
+
+  void _seedInitialRoomIds() {
+    _initialRoomIds
+      ..clear()
+      ..addAll(_reservation.roomIds)
+      ..addAll(_initialRooms().map((room) => _asInt(room['id'])));
+  }
+
+  Set<String> _initialRoomNumbers() {
+    final rawNumbers = widget.reservation['room_numbers'];
+    if (rawNumbers is String && rawNumbers.trim().isNotEmpty) {
+      return rawNumbers
+          .split(',')
+          .map((value) => value.trim())
+          .where((value) => value.isNotEmpty)
+          .toSet();
+    }
+    return const <String>{};
+  }
+
+  Future<void> _refreshReservationSnapshot() async {
+    try {
+      final response = await _apiClient.get('/api/reservations/all', {
+        'date': 'all',
+      }, const Duration(seconds: 6));
+
+      if (response.statusCode != 200) {
+        await _fetchRooms();
+        return;
+      }
+
+      final decoded = json.decode(response.body);
+      if (decoded is! List) {
+        await _fetchRooms();
+        return;
+      }
+
+      final fresh = decoded
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .firstWhere(
+            (item) => _asInt(item['id']) == _reservation.id,
+            orElse: () => widget.reservation,
+          );
+
+      if (!mounted) return;
+      setState(() {
+        _reservation = Reservation.fromJson(fresh);
+        _nameController.text = _reservation.clientName;
+        _phoneController.text = _reservation.phone;
+        _emailController.text = _reservation.email;
+        _checkIn = _reservation.checkIn;
+        _checkOut = _reservation.checkOut;
+        _extraBeds = _reservation.extraBeds;
+        _extraMattresses = _reservation.extraMattresses;
+        _selectedRooms
+          ..clear()
+          ..addAll(_initialRoomsFromMap(fresh));
+        _seedInitialRoomIds();
+      });
+    } catch (_) {
+      // On garde les données locales si la requête fraîche échoue.
+    } finally {
+      _fetchRooms();
+    }
+  }
+
+  List<Map<String, dynamic>> _initialRoomsFromMap(Map<String, dynamic> source) {
+    final details = source['room_details'];
     if (details is List) {
       return details
           .whereType<Map>()
@@ -156,18 +239,24 @@ class _EditReservationPageState extends State<EditReservationPage> {
       _errorMessage = null;
     });
 
+    final cacheKey =
+        'available_rooms:$_checkInKey:$_checkOutKey:${_reservation.id}';
+
     try {
-      final response = await _apiClient.get('/api/available-rooms', {
-        'check_in': _checkInKey,
-        'check_out': _checkOutKey,
-        'exclude_reservation_id': _reservation.id.toString(),
-      });
+      final response = await _apiClient
+          .get('/api/available-rooms', {
+            'check_in': _checkInKey,
+            'check_out': _checkOutKey,
+            'exclude_reservation_id': _reservation.id.toString(),
+          })
+          .timeout(const Duration(seconds: 4));
       if (response.statusCode == 200) {
         final decoded = json.decode(response.body) as List<dynamic>;
         final rooms = decoded
             .whereType<Map>()
             .map((room) => Map<String, dynamic>.from(room))
             .toList();
+        _seedSelectedRoomsFromAvailable(rooms);
         final availableIds = rooms.map((room) => _asInt(room['id'])).toSet();
         final removedUnavailable = _selectedRooms.any(
           (room) => !availableIds.contains(_asInt(room['id'])),
@@ -187,6 +276,9 @@ class _EditReservationPageState extends State<EditReservationPage> {
             }
           });
         }
+        await _fetchExtraCapacity();
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(cacheKey, json.encode(rooms));
       } else if (mounted) {
         final decoded = response.body.isNotEmpty
             ? json.decode(response.body)
@@ -199,13 +291,67 @@ class _EditReservationPageState extends State<EditReservationPage> {
         setState(() => _errorMessage = message);
       }
     } catch (e) {
-      if (mounted) {
+      final prefs = await SharedPreferences.getInstance();
+      final cached = prefs.getString(cacheKey);
+      if (cached != null) {
+        final decoded = json.decode(cached) as List<dynamic>;
+        final rooms = decoded
+            .whereType<Map>()
+            .map((room) => Map<String, dynamic>.from(room))
+            .toList();
+        _seedSelectedRoomsFromAvailable(rooms);
+        _sortRoomsBySelection(rooms);
+        if (mounted) {
+          setState(() {
+            _availableRooms = rooms;
+            _errorMessage =
+                'Connexion instable: dernières chambres disponibles affichées.';
+          });
+        }
+        await _fetchExtraCapacity();
+      } else if (mounted) {
         setState(() => _errorMessage = 'Erreur réseau : $e');
       }
     } finally {
       if (mounted) {
         setState(() => _isLoadingRooms = false);
       }
+    }
+  }
+
+  Future<void> _fetchExtraCapacity() async {
+    try {
+      final response = await _apiClient
+          .get('/api/dashboard/extras-capacity', {
+            'check_in': _checkInKey,
+            'check_out': _checkOutKey,
+            'exclude_reservation_id': _reservation.id.toString(),
+          })
+          .timeout(const Duration(seconds: 4));
+
+      if (response.statusCode != 200) return;
+
+      final decoded = json.decode(response.body);
+      if (decoded is! Map<String, dynamic>) return;
+
+      final remainingBeds = decoded['remaining_beds'];
+      final remainingMattresses = decoded['remaining_mattresses'];
+
+      if (!mounted) return;
+      setState(() {
+        _remainingExtraBeds = remainingBeds is num ? remainingBeds.toInt() : 6;
+        _remainingExtraMattresses = remainingMattresses is num
+            ? remainingMattresses.toInt()
+            : 6;
+        if (_extraBeds > _remainingExtraBeds) {
+          _extraBeds = _remainingExtraBeds;
+        }
+        if (_extraMattresses > _remainingExtraMattresses) {
+          _extraMattresses = _remainingExtraMattresses;
+        }
+      });
+    } catch (_) {
+      // On garde la dernière capacité connue.
     }
   }
 
@@ -217,6 +363,43 @@ class _EditReservationPageState extends State<EditReservationPage> {
 
   int _getRoomPrice(Map<String, dynamic> room) {
     return _asInt(room['price_snapshot_ariary'] ?? room['base_price_ariary']);
+  }
+
+  void _seedSelectedRoomsFromAvailable(List<Map<String, dynamic>> rooms) {
+    final initialRoomNumbers = _initialRoomNumbers();
+    for (final room in rooms) {
+      final roomId = _asInt(room['id']);
+      final roomNumber = (room['room_number'] ?? '').toString();
+      final shouldBeSelected = _initialRoomIds.contains(roomId);
+      final shouldBeSelectedByNumber =
+          initialRoomNumbers.isNotEmpty &&
+          initialRoomNumbers.contains(roomNumber);
+      final alreadySelected = _selectedRooms.any(
+        (selected) => _asInt(selected['id']) == roomId,
+      );
+      if ((shouldBeSelected || shouldBeSelectedByNumber) && !alreadySelected) {
+        _initialRoomIds.add(roomId);
+        _selectedRooms.add(room);
+      }
+    }
+  }
+
+  bool _matchesRoomSearch(Map<String, dynamic> room) {
+    final query = _roomSearchQuery.trim().toLowerCase();
+    if (query.isEmpty) return true;
+
+    final roomNumber = (room['room_number'] ?? '').toString().toLowerCase();
+    final type = (room['type'] ?? '').toString().toLowerCase();
+    final model = (room['model'] ?? '').toString().toLowerCase();
+    return roomNumber.contains(query) ||
+        type.contains(query) ||
+        model.contains(query);
+  }
+
+  List<Map<String, dynamic>> get _filteredAvailableRooms {
+    final rooms = _availableRooms.where(_matchesRoomSearch).toList();
+    _sortRoomsBySelection(rooms);
+    return rooms;
   }
 
   Future<void> _pickCheckIn() async {
@@ -439,6 +622,7 @@ class _EditReservationPageState extends State<EditReservationPage> {
                       label: 'Lit supplémentaire',
                       unitPrice: 50000,
                       value: _extraBeds,
+                      maxValue: _remainingExtraBeds,
                       onChanged: (value) => setState(() => _extraBeds = value),
                     ),
                     const SizedBox(height: 10),
@@ -447,6 +631,7 @@ class _EditReservationPageState extends State<EditReservationPage> {
                       label: 'Matelas supplémentaire',
                       unitPrice: 30000,
                       value: _extraMattresses,
+                      maxValue: _remainingExtraMattresses,
                       onChanged: (value) =>
                           setState(() => _extraMattresses = value),
                     ),
@@ -511,6 +696,16 @@ class _EditReservationPageState extends State<EditReservationPage> {
                     ],
                   ),
                   const SizedBox(height: 12),
+                  TextField(
+                    onChanged: (value) =>
+                        setState(() => _roomSearchQuery = value),
+                    decoration: const InputDecoration(
+                      labelText: 'Rechercher une chambre',
+                      hintText: 'Numéro, type ou modèle',
+                      prefixIcon: Icon(Icons.search),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
                   if (_errorMessage != null)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 12),
@@ -529,13 +724,15 @@ class _EditReservationPageState extends State<EditReservationPage> {
                   else
                     Expanded(
                       child: ListView.builder(
-                        itemCount: _availableRooms.length,
+                        itemCount: _filteredAvailableRooms.length,
                         itemBuilder: (context, index) {
-                          final room = _availableRooms[index];
+                          final room = _filteredAvailableRooms[index];
                           final roomId = _asInt(room['id']);
-                          final isSelected = _selectedRooms.any(
-                            (selected) => _asInt(selected['id']) == roomId,
-                          );
+                          final isSelected =
+                              _initialRoomIds.contains(roomId) ||
+                              _selectedRooms.any(
+                                (selected) => _asInt(selected['id']) == roomId,
+                              );
                           final label =
                               'Chambre ${room['room_number']} — ${room['type']} (${room['model']})';
 
@@ -557,12 +754,14 @@ class _EditReservationPageState extends State<EditReservationPage> {
                             onChanged: (value) {
                               setState(() {
                                 if (value == true) {
+                                  _initialRoomIds.add(roomId);
                                   _selectedRooms.removeWhere(
                                     (selected) =>
                                         _asInt(selected['id']) == roomId,
                                   );
                                   _selectedRooms.insert(0, room);
                                 } else {
+                                  _initialRoomIds.remove(roomId);
                                   _selectedRooms.removeWhere(
                                     (selected) =>
                                         _asInt(selected['id']) == roomId,
@@ -626,33 +825,56 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
   }
 
   Future<void> _fetchReservations() async {
-    setState(() => _isLoading = true);
+    if (mounted) {
+      setState(() => _isLoading = true);
+    }
+    final dateParam = _selectedDate.toIso8601String().substring(0, 10);
+    final statusParam = _statusFilter;
+    final cacheKey =
+        'active_reservations:${widget.role}:${widget.userName}:$dateParam:$statusParam';
     try {
-      String dateParam = _showAllDates
-          ? 'all'
-          : _selectedDate.toIso8601String().substring(0, 10);
-      final cacheBust = DateTime.now().millisecondsSinceEpoch;
-      final response = await http.get(
-        Uri.parse(
-          '$baseUrl/api/reservations/all?date=$dateParam&_ts=$cacheBust',
-        ),
-      );
+      final response = await http
+          .get(
+            Uri.parse('$baseUrl/api/reservations/all').replace(
+              queryParameters: {'date': dateParam, 'status': statusParam},
+            ),
+          )
+          .timeout(const Duration(seconds: 5));
       if (response.statusCode == 200) {
         List<dynamic> data = json.decode(response.body);
-        // TRI AUTOMATIQUE PAR ORDRE ALPHABÉTIQUE (Nom du client)
-        data.sort((a, b) {
-          String nameA = (a['client_name'] ?? '').toString().toLowerCase();
-          String nameB = (b['client_name'] ?? '').toString().toLowerCase();
-          return nameA.compareTo(nameB);
-        });
+        if (!mounted) return;
         setState(() {
           _reservations = data;
         });
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(cacheKey, json.encode(data));
       }
     } catch (e) {
-      debugPrint("Error fetching reservations: $e");
+      final prefs = await SharedPreferences.getInstance();
+      final cached = prefs.getString(cacheKey);
+      if (!mounted) return;
+      if (cached != null) {
+        final data = json.decode(cached) as List<dynamic>;
+        setState(() {
+          _reservations = data;
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Mode dégradé: dernières réservations locales affichées.',
+              ),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+      } else {
+        debugPrint("Error fetching reservations: $e");
+      }
     }
-    setState(() => _isLoading = false);
+    if (mounted) {
+      setState(() => _isLoading = false);
+    }
   }
 
   Future<void> _updateStatus(dynamic id, String newStatus) async {
@@ -664,11 +886,27 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
           'id': id,
           'status': newStatus,
           if (newStatus == 'annule') 'cancelled_by_name': widget.userName,
+          if (newStatus == 'annule') 'cancelled_by_role': widget.role,
         }),
       );
       if (!mounted) return;
       if (response.statusCode == 200) {
-        _fetchReservations();
+        if (newStatus == 'annule') {
+          setState(() {
+            for (final reservation in _reservations) {
+              if (_asInt(reservation['id']) == _asInt(id)) {
+                reservation['status'] = 'annule';
+                reservation['cancelled_by_name'] = widget.userName;
+                reservation['cancelled_by_role'] = widget.role;
+                reservation['last_action'] = 'cancelled';
+                reservation['last_action_by'] = widget.userName;
+                reservation['last_action_role'] = widget.role;
+              }
+            }
+          });
+        } else {
+          _fetchReservations();
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Statut mis à jour !'),
@@ -810,6 +1048,7 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
     required Map<String, dynamic> reservation,
     required int amount,
     required String paymentMethod,
+    required String? paymentOperator,
     required String reference,
   }) async {
     try {
@@ -817,6 +1056,7 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
           .postJson('/api/reservations/${reservation['id']}/deposit', {
             'amount_ariary': amount,
             'payment_method': paymentMethod,
+            'payment_operator': paymentOperator,
             'reference': reference,
             'processed_by_name': widget.userName,
             'processed_by_role': widget.role,
@@ -862,6 +1102,7 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
         final amountController = TextEditingController();
         final referenceController = TextEditingController();
         String paymentMethod = 'Espèces';
+        String paymentOperator = 'mvola';
         const methods = [
           'Espèces',
           'Carte Bancaire',
@@ -869,6 +1110,7 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
           'Chèque',
           'Virement',
         ];
+        const operators = ['mvola', 'orange money', 'airtel money'];
 
         return AlertDialog(
           title: const Text('Enregistrer un acompte'),
@@ -900,10 +1142,34 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                           ),
                         )
                         .toList(),
-                    onChanged: (value) => setDialogState(
-                      () => paymentMethod = value ?? paymentMethod,
-                    ),
+                    onChanged: (value) => setDialogState(() {
+                      paymentMethod = value ?? paymentMethod;
+                      if (paymentMethod != 'Mobile Money') {
+                        paymentOperator = 'mvola';
+                      }
+                    }),
                   ),
+                  if (paymentMethod == 'Mobile Money') ...[
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      initialValue: paymentOperator,
+                      decoration: const InputDecoration(
+                        labelText: 'Opérateur',
+                        prefixIcon: Icon(Icons.phone_android),
+                      ),
+                      items: operators
+                          .map(
+                            (value) => DropdownMenuItem(
+                              value: value,
+                              child: Text(value),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (value) => setDialogState(
+                        () => paymentOperator = value ?? paymentOperator,
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   TextField(
                     controller: referenceController,
@@ -928,6 +1194,9 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                 Navigator.pop(context, {
                   'amount_ariary': amount,
                   'payment_method': paymentMethod,
+                  'payment_operator': paymentMethod == 'Mobile Money'
+                      ? paymentOperator
+                      : null,
                   'reference': referenceController.text.trim(),
                 });
               },
@@ -943,6 +1212,7 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
       reservation: reservation,
       amount: result['amount_ariary'] as int,
       paymentMethod: result['payment_method']?.toString() ?? 'Espèces',
+      paymentOperator: result['payment_operator']?.toString(),
       reference: result['reference']?.toString() ?? '',
     );
   }
@@ -1047,6 +1317,7 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
               (paymentStatus == 'unpaid' ||
                   paymentStatus == 'partial' ||
                   paymentStatus == 'unbilled'),
+        'paid' => status == 'arrive' && paymentStatus == 'paid',
         _ => true,
       };
       return matchesSearch && matchesStatus;
@@ -1069,12 +1340,13 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
           TextButton(
             onPressed: () {
               setState(() {
-                _showAllDates = !_showAllDates;
+                _showAllDates = false;
+                _statusFilter = _statusFilter == 'all' ? 'pending' : 'all';
               });
               _fetchReservations();
             },
             child: Text(
-              _showAllDates ? 'Filtrer par date' : 'Voir Tout',
+              _statusFilter == 'all' ? 'En attente' : 'Voir Tout',
               style: const TextStyle(
                 color: _primaryDark,
                 fontWeight: FontWeight.w800,
@@ -1149,13 +1421,15 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                     TextButton(
                       onPressed: () {
                         setState(() {
-                          _showAllDates = !_showAllDates;
-                          _statusFilter = _showAllDates ? 'all' : 'pending';
+                          _showAllDates = false;
+                          _statusFilter = _statusFilter == 'all'
+                              ? 'pending'
+                              : 'all';
                         });
                         _fetchReservations();
                       },
                       child: Text(
-                        _showAllDates ? 'Filtrer par date' : 'Voir tout',
+                        _statusFilter == 'all' ? 'En attente' : 'Voir tout',
                         style: const TextStyle(
                           color: _primaryDark,
                           fontWeight: FontWeight.w800,
@@ -1282,6 +1556,54 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                                     ),
                                 ],
                               ),
+                              if (_asInt(res['deposit_amount_ariary']) > 0)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 4),
+                                  child: Text(
+                                    [
+                                          'Acompte : ${formatPrice(_asInt(res['deposit_amount_ariary']))} Ar',
+                                          [
+                                                res['latest_deposit_method']
+                                                    ?.toString(),
+                                                (res['latest_deposit_method'] ??
+                                                                '')
+                                                            .toString() ==
+                                                        'Mobile Money'
+                                                    ? res['latest_deposit_operator']
+                                                          ?.toString()
+                                                    : null,
+                                              ]
+                                              .where(
+                                                (value) =>
+                                                    value != null &&
+                                                    value.isNotEmpty,
+                                              )
+                                              .join(' / '),
+                                          [
+                                                res['latest_deposit_processed_by']
+                                                    ?.toString(),
+                                                res['latest_deposit_processed_by_role']
+                                                    ?.toString(),
+                                              ]
+                                              .where(
+                                                (value) =>
+                                                    value != null &&
+                                                    value.isNotEmpty,
+                                              )
+                                              .join(' / '),
+                                        ]
+                                        .where(
+                                          (value) =>
+                                              value.toString().isNotEmpty,
+                                        )
+                                        .join(' • '),
+                                    style: const TextStyle(
+                                      color: _primaryDark,
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
                               const SizedBox(height: 10),
                               Text(
                                 (res['email'] == 'N/A' ||
@@ -1330,6 +1652,48 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                                         )
                                         .join(' / '),
                               ),
+                              if (_asInt(res['deposit_amount_ariary']) > 0)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 4),
+                                  child: Text(
+                                    [
+                                          'Acompte : ${formatPrice(_asInt(res['deposit_amount_ariary']))} Ar',
+                                          (res['latest_deposit_method'] ?? '')
+                                                  .toString()
+                                                  .isNotEmpty
+                                              ? (res['latest_deposit_operator'] ??
+                                                            '')
+                                                        .toString()
+                                                        .isNotEmpty
+                                                    ? '${res['latest_deposit_method']} / ${res['latest_deposit_operator']}'
+                                                    : res['latest_deposit_method']
+                                                          .toString()
+                                              : null,
+                                          [
+                                                res['latest_deposit_processed_by']
+                                                    ?.toString(),
+                                                res['latest_deposit_processed_by_role']
+                                                    ?.toString(),
+                                              ]
+                                              .where(
+                                                (value) =>
+                                                    value != null &&
+                                                    value.isNotEmpty,
+                                              )
+                                              .join(' / '),
+                                        ]
+                                        .where(
+                                          (value) =>
+                                              value != null && value.isNotEmpty,
+                                        )
+                                        .join(' • '),
+                                    style: const TextStyle(
+                                      color: _primaryDark,
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
                               const SizedBox(height: 10),
                               Row(
                                 children: [
@@ -1371,6 +1735,10 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                                   const SizedBox(width: 10),
                                   _ReservationStatusPills(
                                     status: (res['status'] ?? '').toString(),
+                                    showCancel:
+                                        widget.role == 'admin' ||
+                                        (res['status'] ?? '').toString() !=
+                                            'arrive',
                                     onChanged: (val) async {
                                       if (val == 'arrive') {
                                         final result =
@@ -1493,10 +1861,12 @@ class _MiniInfoChip extends StatelessWidget {
 class _ReservationStatusPills extends StatelessWidget {
   const _ReservationStatusPills({
     required this.status,
+    required this.showCancel,
     required this.onChanged,
   });
 
   final String status;
+  final bool showCancel;
   final ValueChanged<String> onChanged;
 
   @override
@@ -1523,11 +1893,12 @@ class _ReservationStatusPills extends StatelessWidget {
           selected: normalized == 'arrive',
           onSelected: () => onChanged('arrive'),
         ),
-        _StatusChoiceChip(
-          label: 'Annulé',
-          selected: normalized == 'annule',
-          onSelected: () => onChanged('annule'),
-        ),
+        if (showCancel)
+          _StatusChoiceChip(
+            label: 'Annulé',
+            selected: normalized == 'annule',
+            onSelected: () => onChanged('annule'),
+          ),
       ],
     );
   }
@@ -1540,6 +1911,7 @@ class _QuantitySelector extends StatelessWidget {
     required this.unitPrice,
     required this.value,
     required this.onChanged,
+    this.maxValue,
   });
 
   final IconData icon;
@@ -1547,6 +1919,7 @@ class _QuantitySelector extends StatelessWidget {
   final int unitPrice;
   final int value;
   final ValueChanged<int> onChanged;
+  final int? maxValue;
 
   @override
   Widget build(BuildContext context) {
@@ -1572,6 +1945,11 @@ class _QuantitySelector extends StatelessWidget {
                   '${formatPrice(unitPrice)} Ar / unité',
                   style: const TextStyle(color: _muted, fontSize: 12),
                 ),
+                if (maxValue != null)
+                  Text(
+                    'Restant : $maxValue',
+                    style: const TextStyle(color: _muted, fontSize: 12),
+                  ),
               ],
             ),
           ),
@@ -1588,7 +1966,9 @@ class _QuantitySelector extends StatelessWidget {
             ),
           ),
           IconButton(
-            onPressed: () => onChanged(value + 1),
+            onPressed: maxValue != null && value >= maxValue!
+                ? null
+                : () => onChanged(value + 1),
             icon: const Icon(Icons.add_circle_outline),
           ),
         ],
@@ -1676,6 +2056,11 @@ class _ReservationStatusSelector extends StatelessWidget {
           label: 'Non payées',
           selected: value == 'unpaid',
           onSelected: () => onChanged('unpaid'),
+        ),
+        _StatusChoiceChip(
+          label: 'Payées',
+          selected: value == 'paid',
+          onSelected: () => onChanged('paid'),
         ),
       ],
     );

@@ -27,12 +27,11 @@ class Reservation {
       clientName: (json['client_name'] ?? '').toString(),
       phone: json['phone'] == 'N/A' ? '' : (json['phone'] ?? '').toString(),
       email: json['email'] == 'N/A' ? '' : (json['email'] ?? '').toString(),
-      checkIn: DateTime.parse(json['check_in'].toString()),
-      checkOut: DateTime.parse(json['check_out'].toString()),
-      roomIds: (json['room_ids'] as List<dynamic>? ?? [])
-          .map(_asInt)
-          .where((id) => id > 0)
-          .toList(),
+      checkIn: _parseDate(json['check_in']) ?? DateTime.now(),
+      checkOut:
+          _parseDate(json['check_out']) ??
+          DateTime.now().add(const Duration(days: 1)),
+      roomIds: _parseRoomIds(json['room_ids']),
       extraBeds: _asInt(json['extra_beds'] ?? 0),
       extraMattresses: _asInt(json['extra_mattresses'] ?? 0),
     );
@@ -83,5 +82,30 @@ class Reservation {
     if (value is int) return value;
     if (value is num) return value.toInt();
     return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  static DateTime? _parseDate(dynamic value) {
+    final text = value?.toString().trim();
+    if (text == null || text.isEmpty || text == 'null') return null;
+    return DateTime.tryParse(text);
+  }
+
+  static List<int> _parseRoomIds(dynamic value) {
+    if (value is Iterable) {
+      return value
+          .map(_asInt)
+          .where((id) => id > 0)
+          .toList();
+    }
+
+    if (value is String) {
+      return value
+          .split(',')
+          .map((item) => _asInt(item.trim()))
+          .where((id) => id > 0)
+          .toList();
+    }
+
+    return const [];
   }
 }

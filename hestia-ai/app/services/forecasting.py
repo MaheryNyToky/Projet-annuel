@@ -1,4 +1,6 @@
 import time
+import hashlib
+from math import ceil
 from typing import Dict, List
 
 import pandas as pd
@@ -49,9 +51,17 @@ def predict_prices(
             continue
 
         try:
-            predictions_df = _forecast_room_type(room_type, df_type, start_dt_str, periods)
             base_price = max(0, base_prices.get(room_type, DEFAULT_BASE_PRICE))
             capacity = max(0, (room_capacities or {}).get(room_type, DEFAULT_CAPACITY))
+            history_signature = _history_signature(df_type)
+            predictions_df = _forecast_room_type(
+                room_type,
+                df_type,
+                start_dt_str,
+                periods,
+                capacity,
+                history_signature,
+            )
             all_predictions[room_type] = _price_predictions(
                 predictions_df,
                 base_price,
@@ -69,12 +79,14 @@ def _forecast_room_type(
     df_type: pd.DataFrame,
     start_date: str,
     periods: int,
+    capacity: int,
+    history_signature: str,
 ) -> pd.DataFrame:
     cached = MODELS_CACHE.get(room_type)
     now = time.time()
 
-    if cached and now - cached[0] < MODEL_CACHE_TTL_SECONDS:
-        model = cached[1]
+    if cached and now - cached[0] < MODEL_CACHE_TTL_SECONDS and cached[1] == history_signature:
+        model = cached[2]
     else:
         model = Prophet(
             yearly_seasonality=True,
@@ -85,7 +97,7 @@ def _forecast_room_type(
         )
         model.add_country_holidays(country_name="MG")
         model.fit(df_type[["ds", "y"]])
-        MODELS_CACHE[room_type] = (now, model)
+        MODELS_CACHE[room_type] = (now, history_signature, model)
 
     future_dates = pd.date_range(start=start_date, periods=periods, freq="D")
     forecast = model.predict(pd.DataFrame({"ds": future_dates}))
@@ -101,9 +113,39 @@ def _forecast_room_type(
         if date.weekday() in WEEKEND_DAYS:
             value *= 1.5
 
-        predictions_df.at[index, "yhat"] = max(1, round(value))
+        seasonal_floor = _seasonal_occupancy_floor(date, capacity)
+        predictions_df.at[index, "yhat"] = max(seasonal_floor, max(1, round(value)))
 
     return predictions_df
+
+
+def _history_signature(df_type: pd.DataFrame) -> str:
+    payload = df_type[["ds", "y"]].sort_values("ds").to_json(
+        orient="records",
+        date_format="iso",
+    )
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()
+
+
+def _seasonal_occupancy_floor(date: pd.Timestamp, capacity: int) -> int:
+    if capacity <= 0:
+        return 0
+
+    if date.month in {7, 8}:
+        target_rate = 0.9
+    elif date.month in {6, 9}:
+        target_rate = 0.75
+    elif date.month in {5, 10}:
+        target_rate = 0.6
+    elif date.month in CYCLONE_MONTHS:
+        target_rate = 0.35
+    else:
+        target_rate = 0.45
+
+    if date.weekday() in WEEKEND_DAYS:
+        target_rate += 0.05
+
+    return max(0, min(capacity, int(ceil(capacity * target_rate))))
 
 
 def _price_predictions(

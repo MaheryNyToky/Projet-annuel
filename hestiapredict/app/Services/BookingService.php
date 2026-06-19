@@ -8,6 +8,7 @@ use App\Models\Room;
 use App\Models\User;
 use App\Support\PhoneNumber;
 use Carbon\Carbon;
+use Carbon\CarbonPeriod;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -15,6 +16,15 @@ use Illuminate\Validation\ValidationException;
 
 class BookingService
 {
+    private const BOOKING_ROOM_PRICE_ARIARY = 162500;
+    private const MAX_EXTRA_BEDS_PER_NIGHT = 6;
+    private const MAX_EXTRA_MATTRESSES_PER_NIGHT = 6;
+
+    public function __construct(
+        private readonly AvailabilityService $availabilityService,
+    ) {
+    }
+
     public function createBooking(array $data): Reservation
     {
         return DB::transaction(function () use ($data) {
@@ -27,6 +37,53 @@ class BookingService
 
             $source = $data['source'] ?? 'Appel';
             $customerPhone = PhoneNumber::normalize($data['customer_phone'] ?? null);
+            $roomIds = collect($data['room_ids'] ?? [])
+                ->map(fn ($roomId) => (int) $roomId)
+                ->filter(fn (int $roomId) => $roomId > 0)
+                ->values();
+
+            $busyRoomIds = $this->availabilityService->busyRoomIdsForPeriod(
+                $data['check_in'],
+                $data['check_out'],
+                Reservation::ACTIVE_STATUSES,
+            );
+
+            $conflictingRoomNumbers = Room::query()
+                ->whereIn('id', $roomIds->intersect($busyRoomIds)->values())
+                ->orderBy('room_number')
+                ->pluck('room_number');
+
+            if ($conflictingRoomNumbers->isNotEmpty()) {
+                throw ValidationException::withMessages([
+                    'room_ids' => 'Chambre(s) déjà occupée(s) : ' . $conflictingRoomNumbers->implode(', '),
+                ]);
+            }
+
+            if ($source === 'Booking') {
+                $invalidBookingRoomNumbers = Room::query()
+                    ->whereIn('id', $roomIds)
+                    ->where(function ($query) {
+                        $query
+                            ->where('type', '!=', 'Chambre Double')
+                            ->orWhere('model', 'not like', '%Supérieure%');
+                    })
+                    ->orderBy('room_number')
+                    ->pluck('room_number');
+
+                if ($invalidBookingRoomNumbers->isNotEmpty()) {
+                    throw ValidationException::withMessages([
+                        'room_ids' => 'Booking est limité aux chambres doubles supérieures : ' . $invalidBookingRoomNumbers->implode(', '),
+                    ]);
+                }
+            }
+
+            $this->assertExtraCapacityWithinLimit(
+                $data['check_in'],
+                $data['check_out'],
+                (int) ($data['extra_beds'] ?? 0),
+                (int) ($data['extra_mattresses'] ?? 0),
+            );
+
             $reservation = Reservation::query()->create([
                 'client_name' => $data['client_name'],
                 'client_phone' => $customerPhone ?? '000000000',
@@ -48,15 +105,14 @@ class BookingService
                 ->mapWithKeys(fn (array $roomPrice) => [$roomPrice['id'] => $roomPrice['price']]);
 
             Room::query()
-                ->whereIn('id', $data['room_ids'])
+                ->whereIn('id', $roomIds)
                 ->get()
                 ->each(function (Room $room) use ($reservation, $providedPrices, $source) {
-                    $price = $room->is_fixed_price
-                        ? $room->base_price_ariary
-                        : $providedPrices->get(
-                            $room->id,
-                            $source === 'Booking' ? 162500 : $room->base_price_ariary
-                        );
+                    $price = $source === 'Booking'
+                        ? self::BOOKING_ROOM_PRICE_ARIARY
+                        : ($room->is_fixed_price
+                            ? $room->base_price_ariary
+                            : $providedPrices->get($room->id, $room->base_price_ariary));
 
                     $reservation->rooms()->attach($room->id, [
                         'price_snapshot_ariary' => $price,
@@ -69,7 +125,7 @@ class BookingService
                 'actor_name' => $data['receptionist_name'] ?? null,
                 'actor_role' => 'receptionist',
                 'details' => [
-                    'room_ids' => collect($data['room_ids'] ?? [])->map(fn ($id) => (int) $id)->values()->all(),
+                    'room_ids' => $roomIds->all(),
                     'check_in' => $data['check_in'],
                     'check_out' => $data['check_out'],
                     'source' => $source,
@@ -97,6 +153,16 @@ class BookingService
         if (in_array($status, ['arrive_paid', 'arrive_unpaid'], true)) {
             $paymentStatus = $status === 'arrive_paid' ? 'paid' : 'unpaid';
             $status = 'arrive';
+        }
+
+        if (
+            $status === 'annule'
+            && $reservation->status === 'arrive'
+            && ($data['cancelled_by_role'] ?? null) !== 'admin'
+        ) {
+            throw ValidationException::withMessages([
+                'status' => 'Après check-in, seule une annulation par un administrateur est autorisée.',
+            ]);
         }
 
         $updateData = ['status' => $status];
@@ -154,6 +220,37 @@ class BookingService
             ? Carbon::parse($reservation->check_out_date)->toDateString()
             : $data['check_out'];
         $roomIds = collect($data['room_ids'])->map(fn ($roomId) => (int) $roomId)->values();
+
+        if ($isCheckedIn) {
+            $submittedName = trim((string) ($data['client_name'] ?? ''));
+            $submittedPhone = PhoneNumber::normalize($data['customer_phone'] ?? null);
+            $submittedEmail = trim((string) ($data['customer_email'] ?? ''));
+            $currentEmail = trim((string) ($reservation->customer_email ?? ''));
+
+            $blockedChanges = [];
+            if ($submittedName !== '' && $submittedName !== trim((string) $reservation->client_name)) {
+                $blockedChanges[] = 'client_name';
+            }
+            if ($submittedPhone !== null && $submittedPhone !== ($reservation->customer_phone ?? null)) {
+                $blockedChanges[] = 'customer_phone';
+            }
+            if ($submittedEmail !== '' && $submittedEmail !== $currentEmail) {
+                $blockedChanges[] = 'customer_email';
+            }
+            if ($checkIn !== Carbon::parse($reservation->check_in_date)->toDateString()) {
+                $blockedChanges[] = 'check_in';
+            }
+            if ($checkOut !== Carbon::parse($reservation->check_out_date)->toDateString()) {
+                $blockedChanges[] = 'check_out';
+            }
+
+            if (!empty($blockedChanges)) {
+                throw ValidationException::withMessages([
+                    'reservation' => 'Après check-in, seules les chambres et les suppléments peuvent être modifiés.',
+                ]);
+            }
+        }
+
         $conflictingRoomNumbers = Room::query()
             ->whereIn('id', $roomIds)
             ->whereHas('reservations', function ($query) use ($reservation, $checkIn, $checkOut) {
@@ -170,6 +267,32 @@ class BookingService
                 'room_ids' => 'Chambre(s) déjà occupée(s) : ' . $conflictingRoomNumbers->implode(', '),
             ]);
         }
+
+        if ($reservation->source === 'Booking') {
+            $invalidBookingRoomNumbers = Room::query()
+                ->whereIn('id', $roomIds)
+                ->where(function ($query) {
+                    $query
+                        ->where('type', '!=', 'Chambre Double')
+                        ->orWhere('model', 'not like', '%Supérieure%');
+                })
+                ->orderBy('room_number')
+                ->pluck('room_number');
+
+            if ($invalidBookingRoomNumbers->isNotEmpty()) {
+                throw ValidationException::withMessages([
+                    'room_ids' => 'Booking est limité aux chambres doubles supérieures : ' . $invalidBookingRoomNumbers->implode(', '),
+                ]);
+            }
+        }
+
+        $this->assertExtraCapacityWithinLimit(
+            $checkIn,
+            $checkOut,
+            (int) ($data['extra_beds'] ?? 0),
+            (int) ($data['extra_mattresses'] ?? 0),
+            $reservation->id,
+        );
 
         return DB::transaction(function () use ($reservation, $data, $roomIds, $isCheckedIn) {
             $customerPhone = PhoneNumber::normalize($data['customer_phone'] ?? null);
@@ -234,12 +357,9 @@ class BookingService
                 ->whereIn('id', $roomIds)
                 ->get()
                 ->mapWithKeys(function (Room $room) use ($previousPrices, $reservation) {
-                    $price = $previousPrices->get(
-                        $room->id,
-                        $room->is_fixed_price
-                            ? $room->base_price_ariary
-                            : ($reservation->source === 'Booking' ? 162500 : $room->base_price_ariary)
-                    );
+                    $price = $reservation->source === 'Booking'
+                        ? self::BOOKING_ROOM_PRICE_ARIARY
+                        : $previousPrices->get($room->id, $room->base_price_ariary);
 
                     return [$room->id => ['price_snapshot_ariary' => $price]];
                 })
@@ -261,15 +381,166 @@ class BookingService
         });
     }
 
-    public function reservationsForDate(?string $date): Collection
+    public function extraCapacitySummary(
+        string $checkIn,
+        string $checkOut,
+        ?int $excludeReservationId = null,
+    ): array {
+        $summary = $this->buildExtraCapacitySummary($checkIn, $checkOut, $excludeReservationId);
+
+        return [
+            'status' => 'success',
+            'check_in' => $checkIn,
+            'check_out' => $checkOut,
+            'max_beds' => self::MAX_EXTRA_BEDS_PER_NIGHT,
+            'max_mattresses' => self::MAX_EXTRA_MATTRESSES_PER_NIGHT,
+            'remaining_beds' => $summary['remaining_beds'],
+            'remaining_mattresses' => $summary['remaining_mattresses'],
+            'daily' => $summary['daily'],
+        ];
+    }
+
+    private function assertExtraCapacityWithinLimit(
+        string $checkIn,
+        string $checkOut,
+        int $extraBeds,
+        int $extraMattresses,
+        ?int $excludeReservationId = null,
+    ): void {
+        $summary = $this->buildExtraCapacitySummary($checkIn, $checkOut, $excludeReservationId);
+
+        if ($extraBeds > $summary['remaining_beds']) {
+            $firstDay = collect($summary['daily'])
+                ->first(fn (array $day) => (int) $day['beds_remaining'] < $extraBeds);
+            $remaining = $firstDay['beds_remaining'] ?? 0;
+            $date = $firstDay['date'] ?? $checkIn;
+
+            throw ValidationException::withMessages([
+                'extra_beds' => sprintf(
+                    'Le %s, il ne reste que %d lit(s) supplémentaire(s) disponible(s).',
+                    $date,
+                    $remaining,
+                ),
+            ]);
+        }
+
+        if ($extraMattresses > $summary['remaining_mattresses']) {
+            $firstDay = collect($summary['daily'])
+                ->first(fn (array $day) => (int) $day['mattresses_remaining'] < $extraMattresses);
+            $remaining = $firstDay['mattresses_remaining'] ?? 0;
+            $date = $firstDay['date'] ?? $checkIn;
+
+            throw ValidationException::withMessages([
+                'extra_mattresses' => sprintf(
+                    'Le %s, il ne reste que %d matelas supplémentaire(s) disponible(s).',
+                    $date,
+                    $remaining,
+                ),
+            ]);
+        }
+    }
+
+    private function buildExtraCapacitySummary(
+        string $checkIn,
+        string $checkOut,
+        ?int $excludeReservationId = null,
+    ): array {
+        $start = Carbon::parse($checkIn)->startOfDay();
+        $end = Carbon::parse($checkOut)->startOfDay();
+
+        $daily = [];
+        foreach (CarbonPeriod::create($start, $end->copy()->subDay()) as $date) {
+            $daily[$date->toDateString()] = [
+                'date' => $date->toDateString(),
+                'beds_used' => 0,
+                'beds_remaining' => self::MAX_EXTRA_BEDS_PER_NIGHT,
+                'mattresses_used' => 0,
+                'mattresses_remaining' => self::MAX_EXTRA_MATTRESSES_PER_NIGHT,
+            ];
+        }
+
+        if (empty($daily)) {
+            return [
+                'daily' => [],
+                'remaining_beds' => self::MAX_EXTRA_BEDS_PER_NIGHT,
+                'remaining_mattresses' => self::MAX_EXTRA_MATTRESSES_PER_NIGHT,
+            ];
+        }
+
+        $reservations = Reservation::query()
+            ->select(['id', 'check_in_date', 'check_out_date', 'extra_beds', 'extra_mattresses'])
+            ->whereIn('status', Reservation::ACTIVE_STATUSES)
+            ->where('check_in_date', '<', $checkOut)
+            ->where('check_out_date', '>', $checkIn)
+            ->when($excludeReservationId, fn ($query) => $query->where('id', '!=', $excludeReservationId))
+            ->get();
+
+        foreach ($reservations as $reservation) {
+            $reservationStart = Carbon::parse($reservation->check_in_date)->startOfDay();
+            if ($reservationStart->lt($start)) {
+                $reservationStart = $start->copy();
+            }
+
+            $reservationEnd = Carbon::parse($reservation->check_out_date)->startOfDay();
+            if ($reservationEnd->gt($end)) {
+                $reservationEnd = $end->copy();
+            }
+
+            foreach (CarbonPeriod::create($reservationStart, $reservationEnd->copy()->subDay()) as $date) {
+                $key = $date->toDateString();
+                if (!isset($daily[$key])) {
+                    continue;
+                }
+
+                $daily[$key]['beds_used'] += (int) ($reservation->extra_beds ?? 0);
+                $daily[$key]['mattresses_used'] += (int) ($reservation->extra_mattresses ?? 0);
+            }
+        }
+
+        $remainingBeds = self::MAX_EXTRA_BEDS_PER_NIGHT;
+        $remainingMattresses = self::MAX_EXTRA_MATTRESSES_PER_NIGHT;
+        foreach ($daily as &$day) {
+            $day['beds_remaining'] = max(0, self::MAX_EXTRA_BEDS_PER_NIGHT - $day['beds_used']);
+            $day['mattresses_remaining'] = max(0, self::MAX_EXTRA_MATTRESSES_PER_NIGHT - $day['mattresses_used']);
+            $remainingBeds = min($remainingBeds, $day['beds_remaining']);
+            $remainingMattresses = min($remainingMattresses, $day['mattresses_remaining']);
+        }
+        unset($day);
+
+        return [
+            'daily' => array_values($daily),
+            'remaining_beds' => $remainingBeds,
+            'remaining_mattresses' => $remainingMattresses,
+        ];
+    }
+
+    public function reservationsForDate(?string $date, string $statusFilter = 'all'): Collection
     {
         return Reservation::query()
             ->with(['rooms', 'user', 'invoice.payments', 'latestAudit', 'latestCheckInAudit', 'latestModificationAudit'])
-            ->where('status', '!=', 'annule')
             ->when($date && $date !== 'all', function ($query) use ($date) {
                 $query->where('check_in_date', '<=', $date)
                     ->where('check_out_date', '>', $date);
             })
+            ->when($statusFilter === 'pending', fn ($query) => $query->where('status', 'en_attente'))
+            ->when($statusFilter === 'unpaid', function ($query) {
+                $query->where('status', 'arrive')
+                    ->where(function ($query) {
+                        $query
+                            ->whereIn('payment_status', ['unpaid', 'partial', 'unbilled'])
+                            ->orWhereHas('invoice', fn ($invoiceQuery) => $invoiceQuery->where('balance_amount_ariary', '>', 0))
+                            ->orWhereDoesntHave('invoice');
+                    });
+            })
+            ->when($statusFilter === 'paid', function ($query) {
+                $query->where('status', 'arrive')
+                    ->where(function ($query) {
+                        $query
+                            ->where('payment_status', 'paid')
+                            ->orWhereHas('invoice', fn ($invoiceQuery) => $invoiceQuery->where('balance_amount_ariary', '<=', 0));
+                    });
+            })
+            ->orderBy('client_name')
             ->orderByDesc('created_at')
             ->get()
             ->map(fn (Reservation $reservation) => $this->formatReservation($reservation));
@@ -439,9 +710,11 @@ class BookingService
             'latest_payment_processed_by' => $latestPayment?->processed_by_name,
             'latest_payment_processed_by_role' => $latestPayment?->processed_by_role,
             'latest_payment_method' => $latestPayment?->payment_method,
+            'latest_payment_operator' => $latestPayment?->payment_operator,
             'latest_deposit_processed_by' => $latestDeposit?->processed_by_name,
             'latest_deposit_processed_by_role' => $latestDeposit?->processed_by_role,
             'latest_deposit_method' => $latestDeposit?->payment_method,
+            'latest_deposit_operator' => $latestDeposit?->payment_operator,
             'payment_methods' => $paymentMethods->all(),
             'payment_methods_display' => $paymentMethodsDisplay,
             'created_at' => optional($reservation->created_at)->toDateTimeString(),

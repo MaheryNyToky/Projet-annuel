@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/app_config.dart';
 
@@ -26,16 +27,41 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
   }
 
   Future<void> _fetchUsers() async {
-    setState(() => _isLoading = true);
+    if (mounted) {
+      setState(() => _isLoading = true);
+    }
+    const cacheKey = 'admin_users_cache';
     try {
-      final response = await http.get(Uri.parse('$baseUrl/api/users'));
+      final response = await http
+          .get(Uri.parse('$baseUrl/api/users'))
+          .timeout(const Duration(seconds: 5));
+      if (!mounted) return;
       if (response.statusCode == 200) {
-        setState(() => _users = json.decode(response.body));
+        final data = json.decode(response.body);
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(cacheKey, json.encode(data));
+        if (!mounted) return;
+        setState(() => _users = data);
       }
     } catch (e) {
-      debugPrint("Error fetching users: $e");
+      final prefs = await SharedPreferences.getInstance();
+      final cached = prefs.getString(cacheKey);
+      if (!mounted) return;
+      if (cached != null) {
+        setState(() => _users = json.decode(cached));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Mode dégradé: liste du personnel depuis le cache local.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      } else {
+        debugPrint("Error fetching users: $e");
+      }
     }
-    setState(() => _isLoading = false);
+    if (mounted) {
+      setState(() => _isLoading = false);
+    }
   }
 
   Future<void> _deleteUser(dynamic id) async {
@@ -140,7 +166,7 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
                     Uri.parse(url),
                     headers: {'Content-Type': 'application/json'},
                     body: json.encode(data),
-                  );
+                  ).timeout(const Duration(seconds: 5));
                   if (!context.mounted) return;
                   if (resp.statusCode == 200) {
                     Navigator.pop(context);

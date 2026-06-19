@@ -14,6 +14,7 @@ class Payment extends Model
         'invoice_id',
         'amount_ariary',
         'payment_method',
+        'payment_operator',
         'payment_context',
         'reference',
         'processed_by_name',

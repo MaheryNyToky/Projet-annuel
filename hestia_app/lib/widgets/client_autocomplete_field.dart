@@ -143,11 +143,10 @@ class _ClientAutocompleteFieldState extends State<ClientAutocompleteField> {
     _ignoreNextChange = true;
     widget.controller.value = TextEditingValue(
       text: value,
-      selection: TextSelection.collapsed(offset: value.length),
+      selection: TextSelection(baseOffset: 0, extentOffset: value.length),
     );
     setState(() => _suggestions = const []);
     widget.onSelected(client);
-    FocusScope.of(context).unfocus();
   }
 
   @override
@@ -194,7 +193,7 @@ class _ClientAutocompleteFieldState extends State<ClientAutocompleteField> {
                   shrinkWrap: true,
                   padding: const EdgeInsets.symmetric(vertical: 8),
                   itemCount: _suggestions.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  separatorBuilder: (_, _) => const Divider(height: 1),
                   itemBuilder: (context, index) {
                     final client = _suggestions[index];
                     return ListTile(

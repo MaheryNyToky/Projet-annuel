@@ -4,6 +4,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'core/app_config.dart';
@@ -12,7 +13,6 @@ import 'models/client_profile.dart';
 import 'models/app_user.dart';
 import 'screens/admin_users_page.dart';
 import 'screens/reservations_list_page.dart';
-import 'services/client_search_service.dart';
 import 'services/session_service.dart';
 import 'widgets/availability_card.dart';
 import 'widgets/client_autocomplete_field.dart';
@@ -38,7 +38,69 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final initialUser = await SessionService().loadUser();
 
-  runApp(KamoroApp(initialUser: initialUser));
+  ErrorWidget.builder = (details) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: Scaffold(
+        backgroundColor: _pageBg,
+        body: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 460),
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(
+                      Icons.shield_moon_outlined,
+                      color: _rose,
+                      size: 34,
+                    ),
+                    const SizedBox(height: 14),
+                    const Text(
+                      'Mode de secours',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w900,
+                        color: _ink,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'L’interface a rencontré un problème. Ferme et rouvre l’app pour repartir sur une base propre.',
+                      style: TextStyle(
+                        color: _muted,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      details.exceptionAsString(),
+                      maxLines: 4,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 12, color: _muted),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  };
+
+  runZonedGuarded(
+    () {
+      runApp(KamoroApp(initialUser: initialUser));
+    },
+    (error, stack) {
+      debugPrint('Unhandled app error: $error');
+      debugPrint(stack.toString());
+    },
+  );
 }
 
 class KamoroApp extends StatelessWidget {
@@ -212,104 +274,159 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 430),
-            child: Card(
-              child: Padding(
-                padding: const EdgeInsets.all(28),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Container(
-                      width: 52,
-                      height: 52,
-                      decoration: BoxDecoration(
-                        color: _primary.withValues(alpha: 0.10),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Icon(Icons.hotel, color: _primary, size: 30),
-                    ),
-                    const SizedBox(height: 18),
-                    const Text(
-                      'Kamoro Hotel',
-                      style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.w900,
-                        color: _ink,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    const Text(
-                      'Espace réception et gestion',
-                      style: TextStyle(
-                        color: _muted,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    TextField(
-                      controller: _emailController,
-                      decoration: const InputDecoration(
-                        labelText: 'Email professionnel',
-                        prefixIcon: Icon(Icons.mail_outline),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _passwordController,
-                      obscureText: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Mot de passe',
-                        prefixIcon: Icon(Icons.lock_outline),
-                      ),
-                      onSubmitted: (_) => _isLoading ? null : _handleLogin(),
-                    ),
-                    if (_errorMessage.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 12),
-                        child: Column(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              width: double.infinity,
-                              decoration: BoxDecoration(
-                                color: Colors.red.shade50,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: Colors.red.shade100),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [_pageBg, _sand],
+          ),
+        ),
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 430),
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(28, 30, 28, 28),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 132,
+                          height: 96,
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(24),
+                            color: _primary.withValues(alpha: 0.08),
+                            border: Border.all(color: _border),
+                            boxShadow: [
+                              BoxShadow(
+                                color: _primary.withValues(alpha: 0.08),
+                                blurRadius: 20,
+                                offset: const Offset(0, 8),
                               ),
-                              child: Text(
-                                _errorMessage,
-                                style: TextStyle(
-                                  color: Colors.red.shade800,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
+                            ],
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(18),
+                            child: Image.asset(
+                              'assets/login_logo.png',
+                              fit: BoxFit.contain,
+                              filterQuality: FilterQuality.high,
                             ),
-                            if (_demoModeEnabled &&
-                                _errorMessage.contains('Erreur serveur'))
-                              Padding(
-                                padding: const EdgeInsets.only(top: 8),
-                                child: TextButton(
-                                  onPressed: _enterDemoMode,
-                                  child: const Text('Entrer en mode Démo'),
-                                ),
-                              ),
-                          ],
+                          ),
                         ),
                       ),
-                    const SizedBox(height: 22),
-                    _isLoading
-                        ? const Center(child: CircularProgressIndicator())
-                        : ElevatedButton.icon(
-                            onPressed: _handleLogin,
-                            icon: const Icon(Icons.login),
-                            label: const Text('Se connecter'),
+                      const SizedBox(height: 18),
+                      const Text(
+                        'Kamoro Hotel',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 30,
+                          fontWeight: FontWeight.w900,
+                          color: _ink,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Espace réception et gestion',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: _muted,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.center,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
                           ),
-                  ],
+                          decoration: BoxDecoration(
+                            color: _sand.withValues(alpha: 0.85),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(color: _border),
+                          ),
+                          child: const Text(
+                            'Hestia Predict',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                              color: _primaryDark,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      TextField(
+                        controller: _emailController,
+                        decoration: const InputDecoration(
+                          labelText: 'Email professionnel',
+                          prefixIcon: Icon(Icons.mail_outline),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _passwordController,
+                        obscureText: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Mot de passe',
+                          prefixIcon: Icon(Icons.lock_outline),
+                        ),
+                        onSubmitted: (_) => _isLoading ? null : _handleLogin(),
+                      ),
+                      if (_errorMessage.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 12),
+                          child: Column(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                width: double.infinity,
+                                decoration: BoxDecoration(
+                                  color: Colors.red.shade50,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: Colors.red.shade100,
+                                  ),
+                                ),
+                                child: Text(
+                                  _errorMessage,
+                                  style: TextStyle(
+                                    color: Colors.red.shade800,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                              if (_demoModeEnabled &&
+                                  _errorMessage.contains('Erreur serveur'))
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 8),
+                                  child: TextButton(
+                                    onPressed: _enterDemoMode,
+                                    child: const Text('Entrer en mode Démo'),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      const SizedBox(height: 22),
+                      _isLoading
+                          ? const Center(child: CircularProgressIndicator())
+                          : ElevatedButton.icon(
+                              onPressed: _handleLogin,
+                              icon: const Icon(Icons.login),
+                              label: const Text('Se connecter'),
+                            ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -362,19 +479,17 @@ class _StaffDashboardState extends State<StaffDashboard> {
   }
 
   Future<void> _fetchLiveAvailability({bool isSilent = false}) async {
-    if (!isSilent) setState(() => _isLoading = true);
-    setState(() => _errorMessage = '');
+    if (!isSilent && mounted) setState(() => _isLoading = true);
+    if (mounted) {
+      setState(() => _errorMessage = '');
+    }
     String dateStr = _selectedDate.toIso8601String().substring(0, 10);
-    final cacheBust = DateTime.now().millisecondsSinceEpoch;
 
     try {
       final availResp = await http
-          .get(
-            Uri.parse(
-              '$baseUrl/api/live-availability?date=$dateStr&_ts=$cacheBust',
-            ),
-          )
+          .get(Uri.parse('$baseUrl/api/live-availability?date=$dateStr'))
           .timeout(const Duration(seconds: 5));
+      if (!mounted) return;
       if (availResp.statusCode == 200) {
         setState(() {
           _categories = json.decode(availResp.body);
@@ -382,33 +497,31 @@ class _StaffDashboardState extends State<StaffDashboard> {
         });
       } else {
         _useFallbackData('Erreur serveur: ${availResp.statusCode}');
-        if (!isSilent) setState(() => _isLoading = false);
+        if (!isSilent && mounted) setState(() => _isLoading = false);
       }
     } catch (e) {
       debugPrint("$e");
+      if (!mounted) return;
       _useFallbackData('Mode Hors-ligne : Serveur injoignable.');
-      if (!isSilent) setState(() => _isLoading = false);
+      if (!isSilent && mounted) setState(() => _isLoading = false);
     }
 
     http
         .get(
           Uri.parse(
-            '$baseUrl/api/reservations/all?date=$dateStr&_ts=$cacheBust',
+            '$baseUrl/api/dashboard/reservation-status-summary?date=$dateStr',
           ),
         )
-        .then((reservationsResp) {
-          if (!mounted || reservationsResp.statusCode != 200) return;
-          final reservations =
-              json.decode(reservationsResp.body) as List<dynamic>;
-          final pendingCount = reservations.where((reservation) {
-            return (reservation['status']?.toString() ?? '') == 'en_attente';
-          }).length;
-          final arrivedCount = reservations.where((reservation) {
-            return (reservation['status']?.toString() ?? '') == 'arrive';
-          }).length;
+        .then((summaryResp) {
+          if (!mounted || summaryResp.statusCode != 200) return;
+          final summary = json.decode(summaryResp.body);
           setState(() {
-            _pendingGuestsCount = pendingCount;
-            _arrivedGuestsCount = arrivedCount;
+            _pendingGuestsCount = summary['pending'] is num
+                ? summary['pending'].toInt()
+                : 0;
+            _arrivedGuestsCount = summary['arrived'] is num
+                ? summary['arrived'].toInt()
+                : 0;
           });
         })
         .catchError((e) {
@@ -416,11 +529,7 @@ class _StaffDashboardState extends State<StaffDashboard> {
         });
 
     http
-        .get(
-          Uri.parse(
-            '$baseUrl/api/dashboard/predictions?days=30&_ts=$cacheBust',
-          ),
-        )
+        .get(Uri.parse('$baseUrl/api/dashboard/predictions?days=30'))
         .then((aiResp) {
           if (!mounted || aiResp.statusCode != 200) return;
           final aiData = json.decode(aiResp.body);
@@ -1161,6 +1270,7 @@ class _QuantitySelector extends StatelessWidget {
     required this.unitPrice,
     required this.value,
     required this.onChanged,
+    this.maxValue,
   });
 
   final IconData icon;
@@ -1168,6 +1278,7 @@ class _QuantitySelector extends StatelessWidget {
   final int unitPrice;
   final int value;
   final ValueChanged<int> onChanged;
+  final int? maxValue;
 
   @override
   Widget build(BuildContext context) {
@@ -1193,6 +1304,11 @@ class _QuantitySelector extends StatelessWidget {
                   '${formatPrice(unitPrice)} Ar / unité',
                   style: const TextStyle(color: _muted, fontSize: 12),
                 ),
+                if (maxValue != null)
+                  Text(
+                    'Restant : $maxValue',
+                    style: const TextStyle(color: _muted, fontSize: 12),
+                  ),
               ],
             ),
           ),
@@ -1209,7 +1325,9 @@ class _QuantitySelector extends StatelessWidget {
             ),
           ),
           IconButton(
-            onPressed: () => onChanged(value + 1),
+            onPressed: maxValue != null && value >= maxValue!
+                ? null
+                : () => onChanged(value + 1),
             icon: const Icon(Icons.add_circle_outline),
           ),
         ],
@@ -1230,33 +1348,33 @@ class _NewBookingPageState extends State<NewBookingPage> {
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
   final _emailController = TextEditingController();
-  final ClientSearchService _clientSearchService = ClientSearchService();
   DateTime _checkIn = DateTime.now();
   DateTime _checkOut = DateTime.now().add(const Duration(days: 1));
   List<dynamic> _allAvailableRooms = [];
   Map<String, dynamic> _aiPredictions = {};
   final List<dynamic> _selectedRooms = [];
+  String _roomSearchQuery = '';
   int _extraBeds = 0;
   int _extraMattresses = 0;
+  int _remainingExtraBeds = 6;
+  int _remainingExtraMattresses = 6;
   bool _loadingRooms = false;
   bool _isBookingCom = false;
   ClientProfile? _selectedClient;
-  Timer? _clientAutofillTimer;
-  bool _suppressClientAutofill = false;
+  bool _suppressSelectedClientReset = false;
 
   @override
   void initState() {
     super.initState();
-    _nameController.addListener(_handleClientInputChanged);
-    _phoneController.addListener(_handleClientInputChanged);
+    _nameController.addListener(_handleClientTextChanged);
+    _phoneController.addListener(_handleClientTextChanged);
     _fetchData();
   }
 
   @override
   void dispose() {
-    _clientAutofillTimer?.cancel();
-    _nameController.removeListener(_handleClientInputChanged);
-    _phoneController.removeListener(_handleClientInputChanged);
+    _nameController.removeListener(_handleClientTextChanged);
+    _phoneController.removeListener(_handleClientTextChanged);
     _nameController.dispose();
     _phoneController.dispose();
     _emailController.dispose();
@@ -1268,76 +1386,87 @@ class _NewBookingPageState extends State<NewBookingPage> {
   }
 
   void _applyClient(ClientProfile client) {
-    _clientAutofillTimer?.cancel();
-    _suppressClientAutofill = true;
+    _suppressSelectedClientReset = true;
     setState(() {
       _selectedClient = client;
       _nameController.text = client.displayName;
       _phoneController.text = client.phoneNumber?.trim() ?? '';
     });
-    _suppressClientAutofill = false;
+    _suppressSelectedClientReset = false;
+    _warnIfClientAlreadyBooked(client);
   }
 
-  void _handleClientInputChanged() {
-    if (_suppressClientAutofill) return;
+  void _handleClientTextChanged() {
+    if (_suppressSelectedClientReset) return;
+    final selected = _selectedClient;
+    if (selected == null) return;
 
-    final query = _phoneController.text.trim().isNotEmpty
-        ? _phoneController.text.trim()
-        : _nameController.text.trim();
+    final currentName = _nameController.text.trim();
+    final currentPhone = _phoneController.text.trim();
+    final selectedName = selected.displayName.trim();
+    final selectedPhone = selected.phoneNumber?.trim() ?? '';
 
-    if (query.length < 2) {
-      if (_selectedClient != null) {
-        setState(() => _selectedClient = null);
-      }
-      return;
+    final matchesSelected =
+        currentName == selectedName &&
+        (selectedPhone.isEmpty || currentPhone == selectedPhone);
+
+    if (!matchesSelected) {
+      setState(() => _selectedClient = null);
     }
-
-    _clientAutofillTimer?.cancel();
-    _clientAutofillTimer = Timer(const Duration(milliseconds: 300), () async {
-      final results = await _clientSearchService.search(query);
-      if (!mounted || results.isEmpty) return;
-
-      final normalizedQuery = _normalizeText(query);
-      final normalizedPhoneQuery = _normalizePhone(query);
-      ClientProfile? match;
-
-      for (final client in results) {
-        final clientName = _normalizeText(client.displayName);
-        final clientPhone = _normalizePhone(client.phoneNumber);
-        final exactNameMatch = clientName == normalizedQuery;
-        final exactPhoneMatch = clientPhone == normalizedPhoneQuery;
-        final prefixNameMatch = clientName.startsWith(normalizedQuery);
-        final prefixPhoneMatch = normalizedPhoneQuery != null &&
-            clientPhone != null &&
-            clientPhone.startsWith(normalizedPhoneQuery);
-        if (exactNameMatch ||
-            exactPhoneMatch ||
-            prefixNameMatch ||
-            prefixPhoneMatch) {
-          match = client;
-          break;
-        }
-      }
-
-      match ??= results.length == 1 ? results.first : null;
-      if (match == null) return;
-
-      final sameClient = _selectedClient?.id == match.id;
-      if (sameClient) return;
-
-      _applyClient(match);
-    });
   }
 
-  String _normalizeText(String value) {
-    return value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
-  }
+  Future<void> _warnIfClientAlreadyBooked(ClientProfile client) async {
+    final query = (client.phoneNumber ?? client.displayName).trim();
+    if (query.length < 2) return;
 
-  String? _normalizePhone(String? value) {
-    final digits = value == null ? '' : value.replaceAll(RegExp(r'\D+'), '');
-    if (digits.isEmpty) return null;
-    if (digits.startsWith('261')) return '0${digits.substring(3)}';
-    return digits;
+    try {
+      final response = await http.get(
+        Uri.parse(
+          '$baseUrl/api/dashboard/client-history?q=${Uri.encodeComponent(query)}',
+        ),
+      );
+      if (!mounted || response.statusCode != 200) return;
+
+      final decoded = json.decode(response.body);
+      final rawList = decoded is Map<String, dynamic>
+          ? (decoded['data'] as List<dynamic>? ?? const [])
+          : (decoded as List<dynamic>? ?? const []);
+
+      final selectedDate = _checkIn.toIso8601String().substring(0, 10);
+      final sameDayReservations = rawList.whereType<Map>().where((item) {
+        final status = (item['status'] ?? '').toString();
+        final checkIn = (item['check_in_date'] ?? '').toString();
+        return status != 'annule' && checkIn == selectedDate;
+      }).toList();
+
+      if (sameDayReservations.isEmpty || !mounted) return;
+
+      final references = sameDayReservations
+          .map((item) => (item['reference'] ?? '').toString())
+          .where((ref) => ref.isNotEmpty)
+          .take(4)
+          .join(', ');
+
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Client déjà réservé'),
+          content: Text(
+            references.isEmpty
+                ? 'Cette personne a déjà une réservation sur cette date.'
+                : 'Cette personne a déjà une réservation sur cette date: $references.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+    } catch (_) {
+      // Avertissement non bloquant.
+    }
   }
 
   Future<void> _fetchData() async {
@@ -1346,17 +1475,34 @@ class _NewBookingPageState extends State<NewBookingPage> {
       _selectedRooms.clear();
     });
 
+    final prefs = await SharedPreferences.getInstance();
+    final roomsCacheKey =
+        'booking_rooms:${_checkIn.toIso8601String().substring(0, 10)}:${_checkOut.toIso8601String().substring(0, 10)}';
+    const aiCacheKey = 'booking_ai_predictions';
+
     try {
-      final roomsResp = await http.get(
-        Uri.parse(
-          '$baseUrl/api/available-rooms?check_in=${_checkIn.toIso8601String().substring(0, 10)}&check_out=${_checkOut.toIso8601String().substring(0, 10)}',
-        ),
-      );
+      final roomsResp = await http
+          .get(
+            Uri.parse(
+              '$baseUrl/api/available-rooms?check_in=${_checkIn.toIso8601String().substring(0, 10)}&check_out=${_checkOut.toIso8601String().substring(0, 10)}',
+            ),
+          )
+          .timeout(const Duration(seconds: 5));
       if (roomsResp.statusCode == 200) {
         _allAvailableRooms = json.decode(roomsResp.body);
+        await prefs.setString(roomsCacheKey, json.encode(_allAvailableRooms));
+      } else {
+        final cachedRooms = prefs.getString(roomsCacheKey);
+        if (cachedRooms != null) {
+          _allAvailableRooms = json.decode(cachedRooms);
+        }
       }
     } catch (e) {
       debugPrint("Rooms fetch error: $e");
+      final cachedRooms = prefs.getString(roomsCacheKey);
+      if (cachedRooms != null) {
+        _allAvailableRooms = json.decode(cachedRooms);
+      }
     }
 
     try {
@@ -1369,14 +1515,58 @@ class _NewBookingPageState extends State<NewBookingPage> {
         // On accepte les résultats même si c'est un fallback (prix planchers)
         if (data['status'] == 'success') {
           _aiPredictions = data['results'] ?? {};
+          await prefs.setString(aiCacheKey, json.encode(_aiPredictions));
+        }
+      } else {
+        final cachedAi = prefs.getString(aiCacheKey);
+        if (cachedAi != null) {
+          _aiPredictions = json.decode(cachedAi);
         }
       }
     } catch (e) {
       debugPrint("AI fetch error: $e");
-      _aiPredictions = {};
+      final cachedAi = prefs.getString(aiCacheKey);
+      _aiPredictions = cachedAi != null ? json.decode(cachedAi) : {};
     }
 
+    await _fetchExtraCapacity();
+
     setState(() => _loadingRooms = false);
+  }
+
+  Future<void> _fetchExtraCapacity() async {
+    try {
+      final response = await http
+          .get(
+            Uri.parse(
+              '$baseUrl/api/dashboard/extras-capacity?check_in=${_checkIn.toIso8601String().substring(0, 10)}&check_out=${_checkOut.toIso8601String().substring(0, 10)}',
+            ),
+          )
+          .timeout(const Duration(seconds: 4));
+
+      if (response.statusCode != 200) return;
+
+      final decoded = json.decode(response.body);
+      if (decoded is! Map<String, dynamic>) return;
+
+      final remainingBeds = decoded['remaining_beds'];
+      final remainingMattresses = decoded['remaining_mattresses'];
+      if (!mounted) return;
+      setState(() {
+        _remainingExtraBeds = remainingBeds is num ? remainingBeds.toInt() : 6;
+        _remainingExtraMattresses = remainingMattresses is num
+            ? remainingMattresses.toInt()
+            : 6;
+        if (_extraBeds > _remainingExtraBeds) {
+          _extraBeds = _remainingExtraBeds;
+        }
+        if (_extraMattresses > _remainingExtraMattresses) {
+          _extraMattresses = _remainingExtraMattresses;
+        }
+      });
+    } catch (e) {
+      debugPrint("Extra capacity fetch error: $e");
+    }
   }
 
   Future<void> _saveBooking() async {
@@ -1406,28 +1596,32 @@ class _NewBookingPageState extends State<NewBookingPage> {
 
     setState(() => _loadingRooms = true);
     try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/bookings'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'client_name': _clientName(),
-          'customer_phone': _phoneController.text.trim(),
-          'customer_email': _emailController.text.trim(),
-          'phone_number': _phoneController.text.trim(),
-          'check_in': _checkIn.toIso8601String().substring(0, 10),
-          'check_out': _checkOut.toIso8601String().substring(0, 10),
-          'room_ids': _selectedRooms.map((r) => r['id']).toList(),
-          'room_prices': _selectedRooms
-              .map((r) => {'id': r['id'], 'price': _getSuggestedPrice(r)})
-              .toList(),
-          'extra_beds': _extraBeds,
-          'extra_mattresses': _extraMattresses,
-          'source': _isBookingCom
-              ? 'Booking'
-              : (_phoneController.text.trim().isNotEmpty ? 'Appel' : 'Mail'),
-          'receptionist_name': widget.userName,
-        }),
-      );
+      final response = await http
+          .post(
+            Uri.parse('$baseUrl/api/bookings'),
+            headers: {'Content-Type': 'application/json'},
+            body: json.encode({
+              'client_name': _clientName(),
+              'customer_phone': _phoneController.text.trim(),
+              'customer_email': _emailController.text.trim(),
+              'phone_number': _phoneController.text.trim(),
+              'check_in': _checkIn.toIso8601String().substring(0, 10),
+              'check_out': _checkOut.toIso8601String().substring(0, 10),
+              'room_ids': _selectedRooms.map((r) => r['id']).toList(),
+              'room_prices': _selectedRooms
+                  .map((r) => {'id': r['id'], 'price': _getSuggestedPrice(r)})
+                  .toList(),
+              'extra_beds': _extraBeds,
+              'extra_mattresses': _extraMattresses,
+              'source': _isBookingCom
+                  ? 'Booking'
+                  : (_phoneController.text.trim().isNotEmpty
+                        ? 'Appel'
+                        : 'Mail'),
+              'receptionist_name': widget.userName,
+            }),
+          )
+          .timeout(const Duration(seconds: 8));
 
       if (response.statusCode == 201 || response.statusCode == 200) {
         if (mounted) {
@@ -1519,6 +1713,18 @@ class _NewBookingPageState extends State<NewBookingPage> {
     return total;
   }
 
+  bool _matchesRoomSearch(dynamic room) {
+    final query = _roomSearchQuery.trim().toLowerCase();
+    if (query.isEmpty) return true;
+
+    final roomNumber = (room['room_number'] ?? '').toString().toLowerCase();
+    final type = (room['type'] ?? '').toString().toLowerCase();
+    final model = (room['model'] ?? '').toString().toLowerCase();
+    return roomNumber.contains(query) ||
+        type.contains(query) ||
+        model.contains(query);
+  }
+
   @override
   Widget build(BuildContext context) {
     List<dynamic> filteredRooms = _allAvailableRooms;
@@ -1531,6 +1737,7 @@ class _NewBookingPageState extends State<NewBookingPage> {
           )
           .toList();
     }
+    filteredRooms = filteredRooms.where(_matchesRoomSearch).toList();
 
     return Scaffold(
       appBar: AppBar(title: const Text('Nouvelle réservation')),
@@ -1657,6 +1864,7 @@ class _NewBookingPageState extends State<NewBookingPage> {
                     label: 'Lit supplémentaire',
                     unitPrice: 50000,
                     value: _extraBeds,
+                    maxValue: _remainingExtraBeds,
                     onChanged: (value) => setState(() => _extraBeds = value),
                   ),
                   const SizedBox(height: 10),
@@ -1665,6 +1873,7 @@ class _NewBookingPageState extends State<NewBookingPage> {
                     label: 'Matelas supplémentaire',
                     unitPrice: 30000,
                     value: _extraMattresses,
+                    maxValue: _remainingExtraMattresses,
                     onChanged: (value) =>
                         setState(() => _extraMattresses = value),
                   ),
@@ -1735,6 +1944,16 @@ class _NewBookingPageState extends State<NewBookingPage> {
                         icon: const Icon(Icons.refresh),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    onChanged: (value) =>
+                        setState(() => _roomSearchQuery = value),
+                    decoration: const InputDecoration(
+                      labelText: 'Rechercher une chambre',
+                      hintText: 'Numéro, type ou modèle',
+                      prefixIcon: Icon(Icons.search),
+                    ),
                   ),
                   const SizedBox(height: 12),
                   if (_loadingRooms)

@@ -91,4 +91,140 @@ class InvoicePdfGenerationTest extends TestCase
         $this->assertNotNull($refreshed->pdf_path);
         $this->assertTrue(Storage::disk('local')->exists($refreshed->pdf_path));
     }
+
+    public function test_euro_pdf_mode_is_rejected_for_non_booking_reservation(): void
+    {
+        $user = User::create([
+            'name' => 'Admin Euro Test',
+            'email' => 'admin-euro-test@example.com',
+            'password' => 'password',
+            'role' => 'admin',
+            'is_blacklisted' => false,
+        ]);
+
+        $reservation = Reservation::create([
+            'user_id' => $user->id,
+            'client_name' => 'Euro Refused Client',
+            'client_phone' => '0340000051',
+            'customer_phone' => '0340000051',
+            'customer_email' => 'euro-refused@example.com',
+            'booking_reference' => 'BR-' . uniqid(),
+            'source' => 'Appel',
+            'check_in_date' => '2026-06-16',
+            'check_out_date' => '2026-06-17',
+            'status' => 'arrive',
+            'payment_status' => 'unbilled',
+            'extra_beds' => 0,
+            'extra_mattresses' => 0,
+        ]);
+
+        $invoice = Invoice::create([
+            'reservation_id' => $reservation->id,
+            'invoice_number' => null,
+            'total_amount_ariary' => 50000,
+            'tax_amount_ariary' => 0,
+            'discount_mode' => null,
+            'discount_value' => null,
+            'discount_amount_ariary' => 0,
+            'deposit_amount_ariary' => 0,
+            'pdf_path' => null,
+            'finalized_at' => null,
+            'status' => 'open',
+            'document_type' => 'facture',
+        ]);
+
+        $response = $this->postJson("/api/invoices/{$invoice->id}/generate-pdf", [
+            'document_type' => 'facture',
+            'currency_mode' => 'euro',
+            'actor_role' => 'admin',
+        ]);
+
+        $response->assertStatus(422);
+    }
+
+    public function test_euro_pdf_mode_is_allowed_for_booking_reservation(): void
+    {
+        $user = User::create([
+            'name' => 'Admin Booking Euro Test',
+            'email' => 'admin-booking-euro-test@example.com',
+            'password' => 'password',
+            'role' => 'admin',
+            'is_blacklisted' => false,
+        ]);
+
+        $room = Room::create([
+            'room_number' => '701',
+            'type' => 'Chambre Double',
+            'model' => 'Supérieure',
+            'base_price_ariary' => 125000,
+            'is_fixed_price' => false,
+        ]);
+
+        $reservation = Reservation::create([
+            'user_id' => $user->id,
+            'client_name' => 'Booking Euro Client',
+            'client_phone' => '0340000052',
+            'customer_phone' => '0340000052',
+            'customer_email' => 'booking-euro@example.com',
+            'booking_reference' => 'BR-' . uniqid(),
+            'source' => 'Booking',
+            'check_in_date' => '2026-06-16',
+            'check_out_date' => '2026-06-17',
+            'status' => 'arrive',
+            'payment_status' => 'unbilled',
+            'extra_beds' => 1,
+            'extra_mattresses' => 1,
+        ]);
+        $reservation->rooms()->attach($room->id, [
+            'price_snapshot_ariary' => 162500,
+        ]);
+
+        $invoice = Invoice::create([
+            'reservation_id' => $reservation->id,
+            'invoice_number' => null,
+            'total_amount_ariary' => 242500,
+            'tax_amount_ariary' => 0,
+            'discount_mode' => null,
+            'discount_value' => null,
+            'discount_amount_ariary' => 0,
+            'deposit_amount_ariary' => 0,
+            'pdf_path' => null,
+            'finalized_at' => null,
+            'status' => 'open',
+            'document_type' => 'facture',
+        ]);
+
+        InvoiceItem::create([
+            'invoice_id' => $invoice->id,
+            'description' => 'Chambre 701 (Chambre Double) - 1 nuit(s)',
+            'type' => 'room',
+            'amount_ariary' => 162500,
+            'quantity' => 1,
+        ]);
+        InvoiceItem::create([
+            'invoice_id' => $invoice->id,
+            'description' => 'Lit supplémentaire',
+            'type' => 'extra',
+            'amount_ariary' => 50000,
+            'quantity' => 1,
+        ]);
+        InvoiceItem::create([
+            'invoice_id' => $invoice->id,
+            'description' => 'Matelas supplémentaire',
+            'type' => 'extra',
+            'amount_ariary' => 30000,
+            'quantity' => 1,
+        ]);
+
+        $response = $this->postJson("/api/invoices/{$invoice->id}/generate-pdf", [
+            'document_type' => 'facture',
+            'currency_mode' => 'euro',
+            'actor_role' => 'admin',
+        ]);
+
+        $response->assertOk();
+        $refreshed = Invoice::query()->findOrFail($invoice->id);
+        $this->assertNotNull($refreshed->pdf_path);
+        $this->assertTrue(Storage::disk('local')->exists($refreshed->pdf_path));
+    }
 }

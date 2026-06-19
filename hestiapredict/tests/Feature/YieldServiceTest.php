@@ -140,6 +140,42 @@ class YieldServiceTest extends TestCase
         $this->assertTrue($fixedPrediction['is_fixed_price']);
     }
 
+    public function test_history_data_spans_each_occupied_night_instead_of_only_check_in_day(): void
+    {
+        $room = Room::query()->create([
+            'room_number' => '103',
+            'type' => 'Chambre Double',
+            'model' => 'Supérieure',
+            'base_price_ariary' => 125000,
+            'is_fixed_price' => false,
+        ]);
+
+        $reservation = Reservation::query()->create([
+            'client_name' => 'Client Long Séjour',
+            'client_phone' => '0340000001',
+            'check_in_date' => '2026-07-01',
+            'check_out_date' => '2026-07-04',
+            'status' => 'arrive',
+            'source' => 'direct',
+        ]);
+        $reservation->rooms()->attach($room->id, [
+            'price_snapshot_ariary' => 125000,
+        ]);
+
+        $history = $this->invokePrivate(
+            new YieldService(new AvailabilityService()),
+            'historyData',
+        );
+
+        $rows = array_values(array_filter($history, fn (array $row) => $row['room_type'] === 'Chambre Double - Supérieure'));
+
+        $this->assertCount(3, $rows);
+        $this->assertSame(
+            ['2026-07-01', '2026-07-02', '2026-07-03'],
+            array_column($rows, 'date'),
+        );
+    }
+
     private function invokePrivate(object $object, string $method, mixed ...$arguments): mixed
     {
         $reflection = new ReflectionMethod($object, $method);

@@ -14,6 +14,7 @@ use App\Services\YieldService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -34,8 +35,51 @@ class HotelManagementController extends Controller
             'date' => 'nullable|date',
         ]);
         $date = $validated['date'] ?? now()->toDateString();
-
         return response()->json($this->availabilityService->liveSummary($date));
+    }
+
+    public function reservationStatusSummary(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'date' => 'nullable|date',
+        ]);
+
+        $date = $validated['date'] ?? now()->toDateString();
+        $cacheVersion = $this->availabilityService->getCacheVersion();
+        $payload = Cache::remember("dashboard:reservation-status-summary:$cacheVersion:$date", now()->addSeconds(30), function () use ($date) {
+            $counts = Reservation::query()
+                ->selectRaw('status, COUNT(*) as total')
+                ->where('check_in_date', '<=', $date)
+                ->where('check_out_date', '>', $date)
+                ->whereIn('status', Reservation::ACTIVE_STATUSES)
+                ->groupBy('status')
+                ->pluck('total', 'status');
+
+            return [
+                'date' => $date,
+                'pending' => (int) ($counts['en_attente'] ?? 0),
+                'arrived' => (int) ($counts['arrive'] ?? 0),
+            ];
+        });
+
+        return response()->json($payload);
+    }
+
+    public function extrasCapacity(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'check_in' => 'required|date',
+            'check_out' => 'required|date|after:check_in',
+            'exclude_reservation_id' => 'nullable|integer|exists:reservations,id',
+        ]);
+
+        return response()->json(
+            $this->bookingService->extraCapacitySummary(
+                $validated['check_in'],
+                $validated['check_out'],
+                $validated['exclude_reservation_id'] ?? null,
+            )
+        );
     }
 
     public function getAvailableRoomsForDates(Request $request): JsonResponse
@@ -77,6 +121,7 @@ class HotelManagementController extends Controller
         ]);
 
         $reservation = $this->bookingService->createBooking($validated);
+        $this->availabilityService->invalidateCaches();
 
         return response()->json([
             'status' => 'success',
@@ -92,10 +137,31 @@ class HotelManagementController extends Controller
             'reference' => 'nullable|string|max:40',
             'status' => 'required|string|in:en_attente,arrive,arrive_paid,arrive_unpaid,annule',
             'cancelled_by_name' => 'nullable|string|max:120',
+            'cancelled_by_role' => 'nullable|string|in:admin,receptionist',
         ]);
 
         if (empty($validated['id']) && empty($validated['reference'])) {
             return response()->json(['status' => 'error', 'message' => 'Veuillez fournir un ID ou une référence'], 400);
+        }
+
+        $reservation = Reservation::query()
+            ->when(!empty($validated['id']), fn ($query) => $query->where('id', $validated['id']))
+            ->when(empty($validated['id']) && !empty($validated['reference']), fn ($query) => $query->where('booking_reference', $validated['reference']))
+            ->first();
+
+        if (!$reservation) {
+            return response()->json(['status' => 'error', 'message' => 'Réservation non trouvée'], 404);
+        }
+
+        if (
+            $validated['status'] === 'annule'
+            && $reservation->status === 'arrive'
+            && ($validated['cancelled_by_role'] ?? null) !== 'admin'
+        ) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Après check-in, seule une annulation par un administrateur est autorisée.',
+            ], 403);
         }
 
         $reservation = $this->bookingService->updateStatus($validated);
@@ -104,17 +170,19 @@ class HotelManagementController extends Controller
             return response()->json(['status' => 'error', 'message' => 'Réservation non trouvée'], 404);
         }
 
+        $this->availabilityService->invalidateCaches();
+
         return response()->json(['status' => 'success']);
     }
 
     public function updateReservation(Request $request, int $id): JsonResponse
     {
         $validated = $request->validate([
-            'client_name' => 'required|string|max:120',
+            'client_name' => 'nullable|string|max:120',
             'customer_phone' => 'nullable|string|max:40',
             'customer_email' => 'nullable|email|max:190',
-            'check_in' => 'required|date',
-            'check_out' => 'required|date|after:check_in',
+            'check_in' => 'nullable|date',
+            'check_out' => 'nullable|date|after:check_in',
             'room_ids' => 'required|array|min:1',
             'room_ids.*' => 'integer|distinct|exists:rooms,id',
             'extra_beds' => 'nullable|integer|min:0',
@@ -123,10 +191,39 @@ class HotelManagementController extends Controller
             'modified_by_role' => 'nullable|string|in:admin,receptionist',
         ]);
 
-        if (empty($validated['customer_phone']) && empty($validated['customer_email'])) {
+        $reservation = Reservation::query()->find($id);
+        if (!$reservation) {
+            return response()->json(['status' => 'error', 'message' => 'Réservation non trouvée'], 404);
+        }
+
+        if (
+            $reservation->status !== 'arrive'
+            && empty($validated['client_name'])
+        ) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Le nom du client est requis.',
+            ], 422);
+        }
+
+        if (
+            $reservation->status !== 'arrive'
+            && empty($validated['customer_phone'])
+            && empty($validated['customer_email'])
+        ) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Veuillez renseigner au moins un téléphone ou un email.',
+            ], 422);
+        }
+
+        if (
+            $reservation->status !== 'arrive'
+            && (empty($validated['check_in']) || empty($validated['check_out']))
+        ) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Les dates d’arrivée et de départ sont requises.',
             ], 422);
         }
 
@@ -135,6 +232,8 @@ class HotelManagementController extends Controller
         if (!$reservation) {
             return response()->json(['status' => 'error', 'message' => 'Réservation non trouvée'], 404);
         }
+
+        $this->availabilityService->invalidateCaches();
 
         return response()->json([
             'status' => 'success',
@@ -150,11 +249,18 @@ class HotelManagementController extends Controller
                 ['date'],
                 ['in:all'],
             )],
+            'status' => 'nullable|string|in:all,pending,unpaid,paid',
         ]);
 
-        return response()->json(
-            $this->bookingService->reservationsForDate($validated['date'] ?? null)->values()
-        );
+        $date = $validated['date'] ?? null;
+        $status = $validated['status'] ?? 'all';
+        $cacheVersion = $this->availabilityService->getCacheVersion();
+        $cacheKey = 'dashboard:reservations-for-date:' . $cacheVersion . ':' . ($date ?? 'all') . ':' . $status;
+        $payload = Cache::remember($cacheKey, now()->addSeconds(30), function () use ($date, $status) {
+            return $this->bookingService->reservationsForDate($date, $status)->values()->all();
+        });
+
+        return response()->json($payload);
     }
 
     public function getActiveReservations(Request $request): JsonResponse
@@ -163,8 +269,12 @@ class HotelManagementController extends Controller
             'date' => 'nullable|date',
         ]);
         $date = $validated['date'] ?? now()->toDateString();
+        $cacheVersion = $this->availabilityService->getCacheVersion();
+        $payload = Cache::remember("dashboard:active-reservations:$cacheVersion:$date", now()->addSeconds(30), function () use ($date) {
+            return $this->bookingService->activeReservations($date)->values()->all();
+        });
 
-        return response()->json($this->bookingService->activeReservations($date)->values());
+        return response()->json($payload);
     }
 
     public function searchClientHistory(Request $request): JsonResponse
@@ -178,7 +288,9 @@ class HotelManagementController extends Controller
         $normalizedTerm = Str::lower(Str::ascii($normalizedPhone ?? $term));
         $today = now()->startOfDay();
 
-        $reservations = Reservation::query()
+        $cacheKey = 'dashboard:client-history:' . $this->availabilityService->getCacheVersion() . ':' . $normalizedTerm;
+        $reservations = Cache::remember($cacheKey, now()->addMinutes(1), function () use ($normalizedTerm, $today) {
+            return Reservation::query()
             ->with(['rooms', 'user', 'guest', 'invoice.payments', 'latestAudit', 'latestCheckInAudit', 'latestModificationAudit'])
             ->where(function ($query) use ($normalizedTerm) {
                 $like = '%' . $normalizedTerm . '%';
@@ -222,7 +334,9 @@ class HotelManagementController extends Controller
                     'check_out_date' => $checkOut->toDateString(),
                 ];
             })
-            ->values();
+            ->values()
+            ->all();
+        });
 
         return response()->json([
             'status' => 'success',
@@ -332,7 +446,11 @@ class HotelManagementController extends Controller
         ]);
         $date = $validated['date'] ?? now()->toDateString();
 
-        return response()->json($this->yieldService->auditDate($date));
+        $payload = Cache::remember("dashboard:audit-date:$date", now()->addSeconds(45), function () use ($date) {
+            return $this->yieldService->auditDate($date);
+        });
+
+        return response()->json($payload);
     }
 
     public function aiRevenueSummary(Request $request): JsonResponse
@@ -344,7 +462,11 @@ class HotelManagementController extends Controller
         $days = (int) ($validated['days'] ?? 30);
         $startDate = $validated['start_date'] ?? now()->toDateString();
 
-        return response()->json($this->yieldService->aiRevenueSummary($days, $startDate));
+        $payload = Cache::remember("dashboard:ai-revenue-summary:$days:$startDate", now()->addMinutes(1), function () use ($days, $startDate) {
+            return $this->yieldService->aiRevenueSummary($days, $startDate);
+        });
+
+        return response()->json($payload);
     }
 
     public function checkGlobalOccupationAndAlert(): void
