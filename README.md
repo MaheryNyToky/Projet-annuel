@@ -167,6 +167,22 @@ Le script lance :
 | Laravel API | `http://127.0.0.1:8000/api` |
 | FastAPI Swagger | `http://127.0.0.1:8001/docs` |
 
+## Auto-Demarrage Windows
+
+Pour lancer Kamoro automatiquement a l'ouverture de session Windows :
+
+```powershell
+.\Activer-AutoDemarrage-Kamoro.ps1
+```
+
+Le script cree un raccourci dans le dossier `Startup` de Windows. Il lance l'environnement Docker en arriere-plan et attend que Docker soit pret.
+
+Pour desactiver ce comportement :
+
+```powershell
+.\Desactiver-AutoDemarrage-Kamoro.ps1
+```
+
 Arrêter les services :
 
 ```bash
