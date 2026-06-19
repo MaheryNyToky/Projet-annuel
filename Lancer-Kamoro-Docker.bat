@@ -9,6 +9,19 @@ echo Le premier lancement peut prendre longtemps car Docker construit l'applicat
 echo Ne fermez pas cette fenetre pendant le lancement.
 echo.
 
+echo Mise a jour du depot local...
+git -C "%~dp0" pull --ff-only origin main
+
+if errorlevel 1 (
+    echo.
+    echo ERREUR : impossible de recuperer les dernieres modifications.
+    echo Verifiez que le depot local est propre et que la connexion GitHub fonctionne.
+    pause
+    exit /b 1
+)
+
+echo.
+echo Reconstruction et demarrage des services...
 docker compose up -d --build
 
 if errorlevel 1 (

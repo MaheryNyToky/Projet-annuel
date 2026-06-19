@@ -34,6 +34,13 @@ Set-Location $ProjectRoot
 Write-Log "Attente de Docker Desktop..."
 Wait-ForDocker
 
+Write-Log "Mise a jour du depot local..."
+git -C $ProjectRoot pull --ff-only origin main | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    Write-Log "Echec du git pull."
+    throw "Impossible de recuperer les dernieres modifications."
+}
+
 Write-Log "Lancement de docker compose..."
 $Process = Start-Process -FilePath "docker" -ArgumentList @("compose", "up", "-d", "--build") -WorkingDirectory $ProjectRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput $StdOutLog -RedirectStandardError $StdErrLog
 $Process.WaitForExit()
