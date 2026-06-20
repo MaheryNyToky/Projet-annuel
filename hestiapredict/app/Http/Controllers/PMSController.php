@@ -55,7 +55,7 @@ class PMSController extends Controller
             'first_name' => 'nullable|string|max:120',
             'last_name' => 'nullable|string|max:120',
             'checked_in_by_name' => 'nullable|string|max:120',
-            'checked_in_by_role' => 'nullable|string|in:admin,receptionist',
+            'checked_in_by_role' => 'nullable|string|in:admin,receptionist,superadmin',
         ]);
 
         $reservation = Reservation::with(['rooms', 'guest', 'invoice.items', 'invoice.payments'])->findOrFail($id);
@@ -162,7 +162,7 @@ class PMSController extends Controller
             'payment_operator' => 'nullable|string|in:mvola,orange money,airtel money',
             'reference' => 'nullable|string|max:120',
             'processed_by_name' => 'nullable|string|max:120',
-            'processed_by_role' => 'nullable|string|in:admin,receptionist',
+            'processed_by_role' => 'nullable|string|in:admin,receptionist,superadmin',
         ]);
 
         $result = DB::transaction(function () use ($validated, $id) {
@@ -243,7 +243,7 @@ class PMSController extends Controller
             'payment_operator' => 'nullable|string|in:mvola,orange money,airtel money',
             'reference' => 'nullable|string|max:120',
             'processed_by_name' => 'nullable|string|max:120',
-            'processed_by_role' => 'nullable|string|in:admin,receptionist',
+            'processed_by_role' => 'nullable|string|in:admin,receptionist,superadmin',
         ]);
 
         $result = DB::transaction(function () use ($validated, $id) {
@@ -317,7 +317,7 @@ class PMSController extends Controller
             'pricing_mode' => 'nullable|in:fixed,ai',
             'discount_mode' => 'nullable|in:percent,amount',
             'discount_value' => 'nullable|numeric|min:0',
-            'actor_role' => 'nullable|string|in:admin,receptionist',
+            'actor_role' => 'nullable|string|in:admin,receptionist,superadmin',
             'document_type' => 'nullable|in:facture,proforma',
             'currency_mode' => 'nullable|in:ariary,euro',
         ]);
@@ -328,9 +328,9 @@ class PMSController extends Controller
             ($validated['discount_mode'] ?? null) !== null
             || ($validated['discount_value'] ?? null) !== null
         ) {
-            if (($validated['actor_role'] ?? 'receptionist') !== 'admin') {
+            if (!in_array($validated['actor_role'] ?? 'receptionist', ['admin', 'superadmin'], true)) {
                 return response()->json([
-                    'message' => 'Seul un administrateur peut appliquer une remise.',
+                    'message' => 'Seul un administrateur ou superadmin peut appliquer une remise.',
                 ], 403);
             }
         }

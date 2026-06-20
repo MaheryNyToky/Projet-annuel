@@ -17,13 +17,13 @@ class EnsureAdminDashboard
             return redirect('/dashboard/login');
         }
 
-        if (($user->role ?? null) !== 'admin') {
+        if (!in_array($user->role ?? null, ['admin', 'superadmin'], true)) {
             Auth::logout();
             $request->session()->invalidate();
             $request->session()->regenerateToken();
 
             return redirect('/dashboard/login')
-                ->withErrors(['email' => 'Accès réservé aux comptes administrateur.']);
+                ->withErrors(['email' => 'Accès réservé aux comptes administrateur et superadmin.']);
         }
 
         return $next($request);

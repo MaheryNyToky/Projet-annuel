@@ -46,12 +46,12 @@
                 <p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">Kamoro Hotel</p>
                 <h1 class="display-serif mt-3 text-5xl leading-none text-[var(--ink)] sm:text-6xl lg:text-7xl">Dashboard Admin</h1>
                 <p class="mt-5 max-w-2xl text-base leading-7 text-[var(--muted)]">
-                    Connecte-toi avec le meme email et mot de passe que l'application, mais seuls les comptes administrateur peuvent entrer ici.
+                    Connecte-toi avec le meme email et mot de passe que l'application, mais seuls les comptes administrateur et superadmin peuvent entrer ici.
                 </p>
                 <div class="mt-8 grid max-w-2xl gap-3 text-sm text-[var(--muted)] sm:grid-cols-2">
                     <div class="rounded-3xl border border-[var(--line)] bg-white/60 p-4">
                         <p class="font-bold text-[var(--ink)]">Acces reserve</p>
-                        <p class="mt-1">Compte admin uniquement. Les comptes reception ne peuvent pas ouvrir ce tableau de bord.</p>
+                        <p class="mt-1">Compte admin ou superadmin uniquement. Les comptes reception ne peuvent pas ouvrir ce tableau de bord.</p>
                     </div>
                     <div class="rounded-3xl border border-[var(--line)] bg-white/60 p-4">
                         <p class="font-bold text-[var(--ink)]">Meme base utilisateurs</p>

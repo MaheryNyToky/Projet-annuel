@@ -15,6 +15,7 @@ use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -137,7 +138,7 @@ class HotelManagementController extends Controller
             'reference' => 'nullable|string|max:40',
             'status' => 'required|string|in:en_attente,arrive,arrive_paid,arrive_unpaid,annule',
             'cancelled_by_name' => 'nullable|string|max:120',
-            'cancelled_by_role' => 'nullable|string|in:admin,receptionist',
+            'cancelled_by_role' => 'nullable|string|in:admin,receptionist,superadmin',
         ]);
 
         if (empty($validated['id']) && empty($validated['reference'])) {
@@ -156,7 +157,7 @@ class HotelManagementController extends Controller
         if (
             $validated['status'] === 'annule'
             && $reservation->status === 'arrive'
-            && ($validated['cancelled_by_role'] ?? null) !== 'admin'
+            && !in_array($validated['cancelled_by_role'] ?? null, ['admin', 'superadmin'], true)
         ) {
             return response()->json([
                 'status' => 'error',
@@ -188,7 +189,7 @@ class HotelManagementController extends Controller
             'extra_beds' => 'nullable|integer|min:0',
             'extra_mattresses' => 'nullable|integer|min:0',
             'modified_by_name' => 'nullable|string|max:120',
-            'modified_by_role' => 'nullable|string|in:admin,receptionist',
+            'modified_by_role' => 'nullable|string|in:admin,receptionist,superadmin',
         ]);
 
         $reservation = Reservation::query()->find($id);
@@ -356,11 +357,26 @@ class HotelManagementController extends Controller
             'name' => 'required|string|max:120',
             'email' => 'required|email|max:190|unique:users',
             'password' => 'required|string|min:6|max:255',
-            'role' => 'required|string|in:admin,receptionist',
+            'role' => 'required|string|in:admin,receptionist,superadmin',
+            'actor_role' => 'nullable|string|in:admin,superadmin',
         ]);
 
+        $actorRole = $this->resolveActorRole($request);
+        if (!in_array($actorRole, ['admin', 'superadmin'], true)) {
+            return response()->json(['status' => 'error', 'message' => 'Accès refusé.'], 403);
+        }
+
+        if ($validated['role'] === 'superadmin' && $actorRole !== 'superadmin') {
+            return response()->json(['status' => 'error', 'message' => 'Seul un superadmin peut créer un compte superadmin.'], 403);
+        }
+
         // Le modèle User applique le cast "hashed" : le mot de passe n'est jamais stocké en clair.
-        $user = User::query()->create($validated);
+        $user = User::query()->create([
+            'name' => $validated['name'],
+            'email' => $validated['email'],
+            'password' => $validated['password'],
+            'role' => $validated['role'],
+        ]);
 
         return response()->json(['status' => 'success', 'id' => $user->id]);
     }
@@ -376,11 +392,24 @@ class HotelManagementController extends Controller
                 'max:190',
                 Rule::unique('users', 'email')->ignore($request->integer('id')),
             ],
-            'role' => 'required|string|in:admin,receptionist',
+            'role' => 'required|string|in:admin,receptionist,superadmin',
             'password' => 'nullable|string|min:6|max:255',
+            'actor_role' => 'nullable|string|in:admin,superadmin',
         ]);
 
+        $actorRole = $this->resolveActorRole($request);
+        if (!in_array($actorRole, ['admin', 'superadmin'], true)) {
+            return response()->json(['status' => 'error', 'message' => 'Accès refusé.'], 403);
+        }
+
         $user = User::query()->findOrFail($validated['id']);
+        if ($user->role === 'superadmin' && $actorRole !== 'superadmin') {
+            return response()->json(['status' => 'error', 'message' => 'Seul un superadmin peut modifier un compte superadmin.'], 403);
+        }
+        if ($validated['role'] === 'superadmin' && $actorRole !== 'superadmin') {
+            return response()->json(['status' => 'error', 'message' => 'Seul un superadmin peut attribuer le rôle superadmin.'], 403);
+        }
+
         $user->fill([
             'name' => $validated['name'],
             'email' => $validated['email'],
@@ -396,9 +425,19 @@ class HotelManagementController extends Controller
         return response()->json(['status' => 'success', 'message' => 'Utilisateur mis à jour avec succès']);
     }
 
-    public function deleteUser(int $id): JsonResponse
+    public function deleteUser(Request $request, int $id): JsonResponse
     {
-        User::query()->where('id', $id)->delete();
+        $actorRole = $this->resolveActorRole($request);
+        if (!in_array($actorRole, ['admin', 'superadmin'], true)) {
+            return response()->json(['status' => 'error', 'message' => 'Accès refusé.'], 403);
+        }
+
+        $user = User::query()->findOrFail($id);
+        if ($user->role === 'superadmin' && $actorRole !== 'superadmin') {
+            return response()->json(['status' => 'error', 'message' => 'Seul un superadmin peut supprimer un compte superadmin.'], 403);
+        }
+
+        $user->delete();
 
         return response()->json(['status' => 'success']);
     }
@@ -425,6 +464,21 @@ class HotelManagementController extends Controller
                 'role' => $user->role,
             ],
         ]);
+    }
+
+    private function resolveActorRole(Request $request): string
+    {
+        $authenticatedRole = Auth::user()?->role;
+        if (is_string($authenticatedRole) && $authenticatedRole !== '') {
+            return $authenticatedRole;
+        }
+
+        $requestedRole = $request->input('actor_role');
+        if (is_string($requestedRole) && $requestedRole !== '') {
+            return $requestedRole;
+        }
+
+        return 'admin';
     }
 
     public function getAiPredictionsAndPricing(Request $request): JsonResponse

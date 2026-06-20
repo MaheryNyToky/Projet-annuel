@@ -319,7 +319,7 @@ class _CheckInPageState extends State<CheckInPage> {
                       : split.$1;
                 },
                 onSelected: _applyClient,
-                showLoyalty: widget.role == 'admin',
+                showLoyalty: widget.role != 'receptionist',
               ),
               const SizedBox(height: 16),
               ClientAutocompleteField(
@@ -338,7 +338,7 @@ class _CheckInPageState extends State<CheckInPage> {
                       : split.$2;
                 },
                 onSelected: _applyClient,
-                showLoyalty: widget.role == 'admin',
+                showLoyalty: widget.role != 'receptionist',
               ),
               const SizedBox(height: 16),
               ClientAutocompleteField(
@@ -349,7 +349,7 @@ class _CheckInPageState extends State<CheckInPage> {
                 textInputAction: TextInputAction.next,
                 valueBuilder: (client) => client.phoneNumber?.trim() ?? '',
                 onSelected: _applyClient,
-                showLoyalty: widget.role == 'admin',
+                showLoyalty: widget.role != 'receptionist',
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
@@ -412,10 +412,10 @@ class _CheckInPageState extends State<CheckInPage> {
                     : null,
                 valueBuilder: (client) => client.displayDocumentNumber,
                 onSelected: _applyClient,
-                showLoyalty: widget.role == 'admin',
+                showLoyalty: widget.role != 'receptionist',
               ),
               const SizedBox(height: 16),
-              if (widget.role == 'admin') ...[
+              if (widget.role != 'receptionist') ...[
                 _loyaltyBanner(),
                 const SizedBox(height: 16),
               ],

@@ -17,7 +17,7 @@ class DashboardAuthController extends Controller
 
     public function showLogin(): View|RedirectResponse
     {
-        if (Auth::check() && Auth::user()?->role === 'admin') {
+        if (Auth::check() && in_array(Auth::user()?->role, ['admin', 'superadmin'], true)) {
             return redirect('/dashboard');
         }
 
@@ -32,9 +32,9 @@ class DashboardAuthController extends Controller
         ]);
 
         $user = $this->authService->attempt($validated['email'], $validated['password']);
-        if (!$user || $user->role !== 'admin') {
+        if (!$user || !in_array($user->role, ['admin', 'superadmin'], true)) {
             return back()
-                ->withErrors(['email' => 'Accès réservé aux comptes administrateur.'])
+                ->withErrors(['email' => 'Accès réservé aux comptes administrateur et superadmin.'])
                 ->onlyInput('email');
         }
 

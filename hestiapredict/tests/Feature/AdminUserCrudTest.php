@@ -17,6 +17,7 @@ class AdminUserCrudTest extends TestCase
             'email' => 'new.staff@example.com',
             'password' => 'secret123',
             'role' => 'receptionist',
+            'actor_role' => 'admin',
         ]);
 
         $create->assertOk();
@@ -35,6 +36,7 @@ class AdminUserCrudTest extends TestCase
             'email' => 'updated.staff@example.com',
             'role' => 'admin',
             'password' => 'secret456',
+            'actor_role' => 'admin',
         ]);
 
         $update->assertOk();
@@ -44,8 +46,52 @@ class AdminUserCrudTest extends TestCase
         $this->assertSame('admin', $updated->role);
         $this->assertNotSame('secret456', $updated->password);
 
-        $delete = $this->deleteJson("/api/users/{$userId}");
+        $delete = $this->deleteJson("/api/users/{$userId}", [
+            'actor_role' => 'admin',
+        ]);
         $delete->assertOk();
         $this->assertDatabaseMissing('users', ['id' => $userId]);
+    }
+
+    public function test_admin_cannot_manage_superadmin_accounts(): void
+    {
+        $create = $this->postJson('/api/users', [
+            'name' => 'Root Admin',
+            'email' => 'root.admin@example.com',
+            'password' => 'secret123',
+            'role' => 'superadmin',
+            'actor_role' => 'admin',
+        ]);
+
+        $create->assertForbidden();
+
+        $superCreate = $this->postJson('/api/users', [
+            'name' => 'Root Admin',
+            'email' => 'root.admin@example.com',
+            'password' => 'secret123',
+            'role' => 'superadmin',
+            'actor_role' => 'superadmin',
+        ]);
+
+        $superCreate->assertOk();
+        $superadminId = $superCreate->json('id');
+
+        $update = $this->postJson('/api/users/update', [
+            'id' => $superadminId,
+            'name' => 'Root Admin Updated',
+            'email' => 'root.admin.updated@example.com',
+            'role' => 'superadmin',
+            'password' => 'secret456',
+            'actor_role' => 'admin',
+        ]);
+
+        $update->assertForbidden();
+
+        $delete = $this->deleteJson("/api/users/{$superadminId}", [
+            'actor_role' => 'admin',
+        ]);
+
+        $delete->assertForbidden();
+        $this->assertDatabaseHas('users', ['id' => $superadminId]);
     }
 }

@@ -23,6 +23,11 @@ class KamoroHotelSeeder extends Seeder
             ['name' => 'Directeur Kamoro', 'password' => Hash::make('admin123'), 'role' => 'admin']
         );
 
+        User::updateOrCreate(
+            ['email' => 'superadmin@kamorohotel.com'],
+            ['name' => 'Super Admin Kamoro', 'password' => Hash::make('super123'), 'role' => 'superadmin']
+        );
+
         // 2. Injection des chambres avec les 3 types de Triples bien séparés issus du PDF des tarifs
         $roomsData = [
             // Double Standard (110 000 Ariary)

@@ -10,7 +10,9 @@ const String baseUrl = AppConfig.apiBaseUrl;
 const Color _primary = Color(0xFF0F766E);
 
 class AdminUsersPage extends StatefulWidget {
-  const AdminUsersPage({super.key});
+  const AdminUsersPage({super.key, this.currentRole = 'admin'});
+
+  final String currentRole;
 
   @override
   State<AdminUsersPage> createState() => _AdminUsersPageState();
@@ -19,6 +21,33 @@ class AdminUsersPage extends StatefulWidget {
 class _AdminUsersPageState extends State<AdminUsersPage> {
   List<dynamic> _users = [];
   bool _isLoading = true;
+
+  bool get _isSuperadmin => widget.currentRole == 'superadmin';
+  bool get _isPrivileged => widget.currentRole != 'receptionist';
+
+  List<String> get _allowedRoles {
+    if (_isSuperadmin) {
+      return const ['superadmin', 'admin', 'receptionist'];
+    }
+    return const ['admin', 'receptionist'];
+  }
+
+  String _roleLabel(String role) {
+    switch (role) {
+      case 'superadmin':
+        return 'Super administrateur';
+      case 'admin':
+        return 'Administrateur';
+      default:
+        return 'Réceptionniste';
+    }
+  }
+
+  bool _canManageUser(Map<String, dynamic> user) {
+    if (!_isPrivileged) return false;
+    if (_isSuperadmin) return true;
+    return user['role']?.toString() != 'superadmin';
+  }
 
   @override
   void initState() {
@@ -66,7 +95,11 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
 
   Future<void> _deleteUser(dynamic id) async {
     try {
-      final response = await http.delete(Uri.parse('$baseUrl/api/users/$id'));
+      final response = await http.delete(
+        Uri.parse('$baseUrl/api/users/$id'),
+        headers: const {'Content-Type': 'application/json'},
+        body: json.encode({'actor_role': widget.currentRole}),
+      );
       if (response.statusCode == 200) {
         _fetchUsers();
       }
@@ -79,7 +112,11 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
     final nameController = TextEditingController(text: user?['name'] ?? '');
     final emailController = TextEditingController(text: user?['email'] ?? '');
     final passwordController = TextEditingController();
-    String role = user?['role'] ?? 'receptionist';
+    var obscurePassword = true;
+    final initialRole = user?['role']?.toString();
+    String role = _allowedRoles.contains(initialRole)
+        ? initialRole!
+        : (_isSuperadmin ? 'superadmin' : 'receptionist');
 
     showDialog(
       context: context,
@@ -112,30 +149,46 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
                   decoration: InputDecoration(
                     labelText: user == null
                         ? 'Mot de passe'
-                        : 'Nouveau mot de passe (optionnel)',
+                        : 'Mot de passe à remplacer (optionnel)',
                     prefixIcon: const Icon(Icons.lock),
+                    helperText: user == null
+                        ? 'Le mot de passe ne s’affiche jamais après sauvegarde.'
+                        : 'Le mot de passe actuel est masqué. Saisis-en un nouveau seulement si tu veux le changer.',
+                    suffixIcon: IconButton(
+                      tooltip: obscurePassword ? 'Afficher' : 'Masquer',
+                      icon: Icon(
+                        obscurePassword
+                            ? Icons.visibility
+                            : Icons.visibility_off,
+                      ),
+                      onPressed: () => setModalState(
+                        () => obscurePassword = !obscurePassword,
+                      ),
+                    ),
                   ),
-                  obscureText: true,
+                  obscureText: obscurePassword,
                 ),
                 const SizedBox(height: 15),
                 const Text(
                   "Niveau d'accès :",
                   style: TextStyle(fontSize: 12, color: Colors.grey),
                 ),
-                DropdownButton<String>(
-                  value: role,
+                DropdownButtonFormField<String>(
+                  initialValue: role,
                   isExpanded: true,
-                  items: const [
-                    DropdownMenuItem(
-                      value: 'admin',
-                      child: Text('Administrateur'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'receptionist',
-                      child: Text('Réceptionniste'),
-                    ),
-                  ],
-                  onChanged: (val) => setModalState(() => role = val!),
+                  items: _allowedRoles
+                      .map(
+                        (value) => DropdownMenuItem(
+                          value: value,
+                          child: Text(_roleLabel(value)),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (val) {
+                    if (val != null) {
+                      setModalState(() => role = val);
+                    }
+                  },
                 ),
               ],
             ),
@@ -151,6 +204,7 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
                   'name': nameController.text,
                   'email': emailController.text,
                   'role': role,
+                  'actor_role': widget.currentRole,
                 };
                 if (user != null) data['id'] = user['id'];
                 if (passwordController.text.isNotEmpty) {
@@ -233,14 +287,14 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
                         ),
                         child: ListTile(
                           leading: CircleAvatar(
-                            backgroundColor: user['role'] == 'admin'
+                            backgroundColor: user['role'] != 'receptionist'
                                 ? const Color(0xFFFFF1F2)
                                 : _primary.withValues(alpha: 0.10),
                             child: Icon(
-                              user['role'] == 'admin'
+                              user['role'] != 'receptionist'
                                   ? Icons.security
                                   : Icons.person,
-                              color: user['role'] == 'admin'
+                              color: user['role'] != 'receptionist'
                                   ? const Color(0xFFBE123C)
                                   : _primary,
                             ),
@@ -249,47 +303,54 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
                             user['name'],
                             style: const TextStyle(fontWeight: FontWeight.bold),
                           ),
-                          subtitle: Text('${user['email']} (${user['role']})'),
+                          subtitle: Text(
+                            '${user['email']} (${_roleLabel(user['role']?.toString() ?? '')})',
+                          ),
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               IconButton(
                                 icon: const Icon(Icons.edit, color: _primary),
-                                onPressed: () => _showUserForm(user: user),
+                                onPressed: _canManageUser(user)
+                                    ? () => _showUserForm(user: user)
+                                    : null,
                               ),
                               IconButton(
                                 icon: const Icon(
                                   Icons.delete,
                                   color: Colors.red,
                                 ),
-                                onPressed: () {
-                                  showDialog(
-                                    context: context,
-                                    builder: (context) => AlertDialog(
-                                      title: const Text('Supprimer ?'),
-                                      content: Text(
-                                        "Voulez-vous vraiment retirer ${user['name']} du staff ?",
-                                      ),
-                                      actions: [
-                                        TextButton(
-                                          onPressed: () =>
-                                              Navigator.pop(context),
-                                          child: const Text('Annuler'),
-                                        ),
-                                        TextButton(
-                                          onPressed: () {
-                                            Navigator.pop(context);
-                                            _deleteUser(user['id']);
-                                          },
-                                          child: const Text(
-                                            'Supprimer',
-                                            style: TextStyle(color: Colors.red),
+                                onPressed: _canManageUser(user)
+                                    ? () {
+                                        showDialog(
+                                          context: context,
+                                          builder: (context) => AlertDialog(
+                                            title: const Text('Supprimer ?'),
+                                            content: Text(
+                                              "Voulez-vous vraiment retirer ${user['name']} du staff ?",
+                                            ),
+                                            actions: [
+                                              TextButton(
+                                                onPressed: () =>
+                                                    Navigator.pop(context),
+                                                child: const Text('Annuler'),
+                                              ),
+                                              TextButton(
+                                                onPressed: () {
+                                                  Navigator.pop(context);
+                                                  _deleteUser(user['id']);
+                                                },
+                                                child: const Text(
+                                                  'Supprimer',
+                                                  style: TextStyle(
+                                                      color: Colors.red),
+                                                ),
+                                              ),
+                                            ],
                                           ),
-                                        ),
-                                      ],
-                                    ),
-                                  );
-                                },
+                                        );
+                                      }
+                                    : null,
                               ),
                             ],
                           ),

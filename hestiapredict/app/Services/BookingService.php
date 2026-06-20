@@ -158,10 +158,10 @@ class BookingService
         if (
             $status === 'annule'
             && $reservation->status === 'arrive'
-            && ($data['cancelled_by_role'] ?? null) !== 'admin'
+            && !in_array($data['cancelled_by_role'] ?? null, ['admin', 'superadmin'], true)
         ) {
             throw ValidationException::withMessages([
-                'status' => 'Après check-in, seule une annulation par un administrateur est autorisée.',
+                'status' => 'Après check-in, seule une annulation par un administrateur ou superadmin est autorisée.',
             ]);
         }
 

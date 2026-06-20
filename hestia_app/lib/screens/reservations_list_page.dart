@@ -789,7 +789,6 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
   List<dynamic> _reservations = [];
   bool _isLoading = true;
   late DateTime _selectedDate;
-  bool _showAllDates = false;
   String _statusFilter = 'pending';
   String _searchQuery = '';
 
@@ -802,7 +801,7 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
     _fetchReservations();
   }
 
-  bool get _isAdmin => widget.role == 'admin';
+  bool get _isAdmin => widget.role != 'receptionist';
 
   DateTime get _todayOnly =>
       DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
@@ -1330,7 +1329,6 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
           IconButton(
             onPressed: () {
               setState(() {
-                _showAllDates = false;
                 _statusFilter = 'pending';
               });
               _fetchReservations();
@@ -1340,7 +1338,6 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
           TextButton(
             onPressed: () {
               setState(() {
-                _showAllDates = false;
                 _statusFilter = _statusFilter == 'all' ? 'pending' : 'all';
               });
               _fetchReservations();
@@ -1377,7 +1374,6 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                         _selectedDate = _todayOnly.subtract(
                           const Duration(days: 1),
                         );
-                        _showAllDates = false;
                       }
                     });
                     _fetchReservations();
@@ -1421,7 +1417,6 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                     TextButton(
                       onPressed: () {
                         setState(() {
-                          _showAllDates = false;
                           _statusFilter = _statusFilter == 'all'
                               ? 'pending'
                               : 'all';
@@ -1736,7 +1731,7 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                                   _ReservationStatusPills(
                                     status: (res['status'] ?? '').toString(),
                                     showCancel:
-                                        widget.role == 'admin' ||
+                                        widget.role != 'receptionist' ||
                                         (res['status'] ?? '').toString() !=
                                             'arrive',
                                     onChanged: (val) async {

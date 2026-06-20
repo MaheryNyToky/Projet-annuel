@@ -649,7 +649,10 @@ class _StaffDashboardState extends State<StaffDashboard> {
               },
               onManageStaff: () {
                 Navigator.pop(context);
-                Navigator.push(context, _softRoute(const AdminUsersPage()));
+                Navigator.push(
+                  context,
+                  _softRoute(AdminUsersPage(currentRole: widget.role)),
+                );
               },
               onLogout: () async {
                 await SessionService().clear();
@@ -678,7 +681,7 @@ class _StaffDashboardState extends State<StaffDashboard> {
                   userName: widget.userName,
                   onManageStaff: () => Navigator.push(
                     context,
-                    _softRoute(const AdminUsersPage()),
+                    _softRoute(AdminUsersPage(currentRole: widget.role)),
                   ),
                   onDashboardTap: () =>
                       _launchURL('http://localhost:8000/dashboard'),
@@ -740,7 +743,9 @@ class _MobileReceptionDrawer extends StatelessWidget {
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
             ),
             accountEmail: Text(
-              role == 'admin' ? 'Administrateur' : 'Réceptionniste',
+              role == 'superadmin'
+                  ? 'Super administrateur'
+                  : (role == 'admin' ? 'Administrateur' : 'Réceptionniste'),
               style: const TextStyle(fontStyle: FontStyle.italic),
             ),
             currentAccountPicture: CircleAvatar(
@@ -751,7 +756,7 @@ class _MobileReceptionDrawer extends StatelessWidget {
               ),
             ),
           ),
-          if (role == 'admin') ...[
+          if (role != 'receptionist') ...[
             ListTile(
               leading: const Icon(Icons.manage_accounts),
               title: const Text('Gérer le Staff'),
@@ -862,7 +867,7 @@ class _FrostedSideNav extends StatelessWidget {
                   selected: true,
                   onTap: () {},
                 ),
-                if (role == 'admin') ...[
+                if (role != 'receptionist') ...[
                   const SizedBox(height: 10),
                   _SideNavButton(
                     icon: Icons.manage_accounts_outlined,
@@ -913,9 +918,11 @@ class _FrostedSideNav extends StatelessWidget {
                               ),
                             ),
                             Text(
-                              role == 'admin'
-                                  ? 'Administrateur'
-                                  : 'Réceptionniste',
+                              role == 'superadmin'
+                                  ? 'Super administrateur'
+                                  : (role == 'admin'
+                                      ? 'Administrateur'
+                                      : 'Réceptionniste'),
                               style: const TextStyle(
                                 color: _muted,
                                 fontSize: 12,
@@ -1757,7 +1764,7 @@ class _NewBookingPageState extends State<NewBookingPage> {
                     textInputAction: TextInputAction.next,
                     valueBuilder: (client) => client.displayName,
                     onSelected: _applyClient,
-                    showLoyalty: widget.role == 'admin',
+                    showLoyalty: widget.role != 'receptionist',
                   ),
                   const SizedBox(height: 12),
                   ClientAutocompleteField(
@@ -1768,7 +1775,7 @@ class _NewBookingPageState extends State<NewBookingPage> {
                     textInputAction: TextInputAction.next,
                     valueBuilder: (client) => client.phoneNumber?.trim() ?? '',
                     onSelected: _applyClient,
-                    showLoyalty: widget.role == 'admin',
+                    showLoyalty: widget.role != 'receptionist',
                   ),
                   const SizedBox(height: 12),
                   TextField(
@@ -1781,7 +1788,7 @@ class _NewBookingPageState extends State<NewBookingPage> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  if (_selectedClient != null && widget.role == 'admin')
+                  if (_selectedClient != null && widget.role != 'receptionist')
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(14),
@@ -1798,7 +1805,7 @@ class _NewBookingPageState extends State<NewBookingPage> {
                         ),
                       ),
                     ),
-                  if (_selectedClient != null && widget.role == 'admin')
+                  if (_selectedClient != null && widget.role != 'receptionist')
                     const SizedBox(height: 12),
                   SwitchListTile(
                     activeThumbColor: _primary,

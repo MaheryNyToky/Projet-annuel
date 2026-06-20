@@ -56,7 +56,7 @@ class _FolioPageState extends State<FolioPage> {
   }
 
   bool get _canAccess =>
-      widget.role == 'admin' ||
+      widget.role != 'receptionist' ||
       widget.reservation['status']?.toString() == 'arrive';
 
   @override
@@ -153,7 +153,7 @@ class _FolioPageState extends State<FolioPage> {
           : 'ariary',
     };
 
-    if (widget.role == 'admin' && discountValue > 0) {
+    if (widget.role != 'receptionist' && discountValue > 0) {
       payload['discount_mode'] = _discountMode;
       payload['discount_value'] = discountValue;
     }
@@ -575,10 +575,10 @@ class _FolioPageState extends State<FolioPage> {
                           _SummaryPanel(
                             folio: _folio!,
                             reservation: widget.reservation,
-                            showLoyalty: widget.role == 'admin',
+                            showLoyalty: widget.role != 'receptionist',
                           ),
                           const SizedBox(height: 16),
-                          if (widget.role == 'admin') ...[
+                          if (widget.role != 'receptionist') ...[
                             _DiscountCard(
                               controller: _discountController,
                               mode: _discountMode,

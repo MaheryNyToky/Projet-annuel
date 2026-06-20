@@ -44,6 +44,31 @@ class DashboardAdminLoginTest extends TestCase
         $dashboard->assertSee('Kamoro Hotel - Tableau de bord');
     }
 
+    public function test_superadmin_can_login_and_access_dashboard(): void
+    {
+        $this->withoutMiddleware(ValidateCsrfToken::class);
+
+        User::create([
+            'name' => 'Super Admin Web',
+            'email' => 'superadmin.web@example.com',
+            'password' => 'secret123',
+            'role' => 'superadmin',
+            'is_blacklisted' => false,
+        ]);
+
+        $login = $this->post('/dashboard/login', [
+            'email' => 'superadmin.web@example.com',
+            'password' => 'secret123',
+        ]);
+
+        $login->assertRedirect('/dashboard');
+        $this->assertAuthenticated();
+        $this->assertSame('superadmin', auth()->user()->role);
+
+        $dashboard = $this->get('/dashboard');
+        $dashboard->assertOk();
+    }
+
     public function test_receptionist_cannot_access_dashboard_login(): void
     {
         $this->withoutMiddleware(ValidateCsrfToken::class);
