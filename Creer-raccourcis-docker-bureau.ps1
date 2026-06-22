@@ -1,10 +1,17 @@
 $ErrorActionPreference = "Stop"
 
-$ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$DesktopPath = [Environment]::GetFolderPath("Desktop")
+$ProjectRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+$DesktopCandidates = @(
+    [Environment]::GetFolderPath("DesktopDirectory"),
+    [Environment]::GetFolderPath("Desktop")
+) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
 $Shell = New-Object -ComObject WScript.Shell
 
-function New-KamoroShortcut {
+if (-not $DesktopCandidates -or $DesktopCandidates.Count -eq 0) {
+    throw "Aucun dossier Bureau valide n'a ete trouve."
+}
+
+function New-ShortcutForTarget {
     param(
         [string]$Name,
         [string]$Target,
@@ -15,20 +22,22 @@ function New-KamoroShortcut {
         throw "Fichier introuvable : $Target"
     }
 
-    $ShortcutPath = Join-Path $DesktopPath "$Name.lnk"
-    $Shortcut = $Shell.CreateShortcut($ShortcutPath)
-    $Shortcut.TargetPath = $Target
-    $Shortcut.WorkingDirectory = $ProjectRoot
-    $Shortcut.Description = $Description
-    $Shortcut.Save()
+    foreach ($DesktopPath in $DesktopCandidates) {
+        $ShortcutPath = Join-Path $DesktopPath "$Name.lnk"
+        $Shortcut = $Shell.CreateShortcut($ShortcutPath)
+        $Shortcut.TargetPath = $Target
+        $Shortcut.WorkingDirectory = $ProjectRoot
+        $Shortcut.Description = $Description
+        $Shortcut.Save()
+    }
 }
 
-New-KamoroShortcut `
+New-ShortcutForTarget `
     -Name "Kamoro - Lancer" `
     -Target (Join-Path $ProjectRoot "Lancer-Kamoro-Docker.bat") `
     -Description "Lancer Kamoro Reservation Facturation avec Docker"
 
-New-KamoroShortcut `
+New-ShortcutForTarget `
     -Name "Kamoro - Arreter" `
     -Target (Join-Path $ProjectRoot "Arreter-Kamoro-Docker.bat") `
     -Description "Arreter Kamoro Reservation Facturation"

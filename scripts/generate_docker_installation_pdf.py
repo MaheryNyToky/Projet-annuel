@@ -116,12 +116,13 @@ def build_lines() -> list[tuple[str, int, str]]:
 
     h1("6. Creer les icones sur le Bureau")
     p("Cette etape cree deux icones faciles a utiliser : une pour lancer l'application, une pour l'arreter.")
-    bullet("Dans PowerShell, verifie que tu es dans le dossier Kamoro-reservation-facturation.")
-    bullet("Tape cette commande :")
+    bullet("Ouvre PowerShell dans le dossier Kamoro-reservation-facturation.")
+    bullet("Tape cette commande exactement :")
     cmd("powershell -ExecutionPolicy Bypass -File .\\Creer-raccourcis-docker-bureau.ps1")
     bullet("Retourne sur le Bureau Windows.")
     bullet("Tu dois voir deux nouvelles icones : Kamoro - Lancer et Kamoro - Arreter.")
-    p("Si les icones ne se creent pas, ce n'est pas grave. Tu peux lancer l'application directement avec le fichier Lancer-Kamoro-Docker.bat dans le dossier du projet.")
+    p("Si tu ne les vois pas, regarde aussi le Bureau public Windows, puis refais la commande en gardant PowerShell ouvert.")
+    p("Si Windows bloque le script, fais un clic droit sur le fichier .ps1 et choisis Executer avec PowerShell, ou utilise directement le fichier Lancer-Kamoro-Docker.bat dans le dossier du projet.")
 
     h1("7. Lancer l'application")
     h2("Methode la plus simple")
@@ -132,6 +133,7 @@ def build_lines() -> list[tuple[str, int, str]]:
     bullet("Quand c'est termine, Chrome doit s'ouvrir automatiquement.")
     bullet("Si Chrome ne s'ouvre pas tout seul, ouvre Chrome et va sur :")
     cmd("http://127.0.0.1:8080/index.html")
+    p("Si le raccourci Bureau ne fonctionne pas, lance simplement le fichier Lancer-Kamoro-Docker.bat depuis le dossier du projet.")
 
     h2("Methode de secours")
     bullet("Ouvre le dossier Kamoro-reservation-facturation.")
