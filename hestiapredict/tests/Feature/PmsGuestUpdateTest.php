@@ -118,6 +118,49 @@ class PmsGuestUpdateTest extends TestCase
         $this->assertSame('2029-12-31', $guest->passport_valid_until?->toDateString());
     }
 
+    public function test_checkin_can_reuse_existing_guest_data_when_form_is_partial(): void
+    {
+        $user = User::create([
+            'name' => 'Reception Test',
+            'email' => 'reception-partial@example.com',
+            'password' => 'password',
+            'role' => 'receptionist',
+            'is_blacklisted' => false,
+        ]);
+
+        $reservationId = $this->createReservation($user->id);
+
+        Guest::create([
+            'reservation_id' => $reservationId,
+            'full_name' => 'Jean Miora',
+            'first_name' => 'Jean',
+            'last_name' => 'Miora',
+            'phone_number' => '0341000003',
+            'sex' => 'Homme',
+            'id_document_number' => 'CIN-EXIST-123',
+            'loyalty_count' => 2,
+            'date_of_birth' => '1985-05-05',
+            'id_type' => 'CIN',
+            'id_number' => 'CIN-EXIST-123',
+            'id_photo_path' => null,
+        ]);
+
+        $response = $this->postJson("/api/reservations/{$reservationId}/checkin", [
+            'full_name' => 'Jean Miora',
+            'customer_phone' => '0341000003',
+            'phone_number' => '0341000003',
+            'checked_in_by_name' => 'Reception Test',
+            'checked_in_by_role' => 'receptionist',
+        ]);
+
+        $response->assertOk();
+
+        $guest = Guest::query()->where('reservation_id', $reservationId)->firstOrFail();
+        $this->assertSame('1985-05-05', $guest->date_of_birth->toDateString());
+        $this->assertSame('Homme', $guest->sex);
+        $this->assertSame('CIN', $guest->id_type);
+    }
+
     private function createReservation(int $userId): int
     {
         return DB::table('reservations')->insertGetId([

@@ -520,7 +520,7 @@ class BookingService
             ->with(['rooms', 'user', 'invoice.payments', 'latestAudit', 'latestCheckInAudit', 'latestModificationAudit'])
             ->when($date && $date !== 'all', function ($query) use ($date) {
                 $query->where('check_in_date', '<=', $date)
-                    ->where('check_out_date', '>', $date);
+                    ->where('check_out_date', '>=', $date);
             })
             ->when($statusFilter === 'pending', fn ($query) => $query->where('status', 'en_attente'))
             ->when($statusFilter === 'unpaid', function ($query) {
@@ -528,17 +528,16 @@ class BookingService
                     ->where(function ($query) {
                         $query
                             ->whereIn('payment_status', ['unpaid', 'partial', 'unbilled'])
-                            ->orWhereHas('invoice', fn ($invoiceQuery) => $invoiceQuery->where('balance_amount_ariary', '>', 0))
+                            ->orWhereHas('invoice', fn ($invoiceQuery) => $invoiceQuery->whereIn('status', ['open', 'partial']))
                             ->orWhereDoesntHave('invoice');
                     });
             })
             ->when($statusFilter === 'paid', function ($query) {
-                $query->where('status', 'arrive')
-                    ->where(function ($query) {
-                        $query
-                            ->where('payment_status', 'paid')
-                            ->orWhereHas('invoice', fn ($invoiceQuery) => $invoiceQuery->where('balance_amount_ariary', '<=', 0));
-                    });
+                $query->where(function ($query) {
+                    $query
+                        ->where('payment_status', 'paid')
+                        ->orWhereHas('invoice', fn ($invoiceQuery) => $invoiceQuery->where('status', 'paid'));
+                });
             })
             ->orderBy('client_name')
             ->orderByDesc('created_at')

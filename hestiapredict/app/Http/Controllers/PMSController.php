@@ -40,7 +40,23 @@ class PMSController extends Controller
 
     public function checkIn(Request $request, int $id): JsonResponse
     {
-        $validated = $request->validate([
+        $reservation = Reservation::with(['rooms', 'guest', 'invoice.items', 'invoice.payments'])->findOrFail($id);
+
+        $payload = array_merge([
+            'full_name' => $reservation->guest?->full_name ?? $reservation->client_name,
+            'customer_phone' => $reservation->guest?->phone_number ?? $reservation->customer_phone ?? $reservation->client_phone ?? null,
+            'phone_number' => $reservation->guest?->phone_number ?? $reservation->customer_phone ?? $reservation->client_phone ?? null,
+            'date_of_birth' => optional($reservation->guest?->date_of_birth)->toDateString(),
+            'sex' => $reservation->guest?->sex,
+            'id_type' => $reservation->guest?->id_type,
+            'id_number' => $reservation->guest?->id_number ?? $reservation->guest?->id_document_number,
+            'id_document_number' => $reservation->guest?->id_document_number ?? $reservation->guest?->id_number,
+            'passport_valid_from' => optional($reservation->guest?->passport_valid_from)->toDateString(),
+            'passport_valid_until' => optional($reservation->guest?->passport_valid_until)->toDateString(),
+            'loyalty_count' => $reservation->guest?->loyalty_count,
+        ], $request->all());
+
+        $validated = validator($payload, [
             'full_name' => 'required|string|max:255',
             'customer_phone' => 'nullable|string|max:50',
             'phone_number' => 'nullable|string|max:50',
@@ -56,9 +72,7 @@ class PMSController extends Controller
             'last_name' => 'nullable|string|max:120',
             'checked_in_by_name' => 'nullable|string|max:120',
             'checked_in_by_role' => 'nullable|string|in:admin,receptionist,superadmin',
-        ]);
-
-        $reservation = Reservation::with(['rooms', 'guest', 'invoice.items', 'invoice.payments'])->findOrFail($id);
+        ])->validate();
         $result = DB::transaction(function () use ($reservation, $validated) {
             $baseLoyaltyCount = (int) ($validated['loyalty_count'] ?? $reservation->guest?->loyalty_count ?? 0);
             $customerPhone = PhoneNumber::normalize($validated['customer_phone'] ?? $reservation->customer_phone ?? $reservation->client_phone ?? null);
@@ -329,9 +343,8 @@ class PMSController extends Controller
             || ($validated['discount_value'] ?? null) !== null
         ) {
             if (!in_array($validated['actor_role'] ?? 'receptionist', ['admin', 'superadmin'], true)) {
-                return response()->json([
-                    'message' => 'Seul un administrateur ou superadmin peut appliquer une remise.',
-                ], 403);
+                $validated['discount_mode'] = null;
+                $validated['discount_value'] = null;
             }
         }
 

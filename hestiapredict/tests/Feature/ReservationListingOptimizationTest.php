@@ -5,6 +5,9 @@ namespace Tests\Feature;
 use App\Models\Reservation;
 use App\Models\Room;
 use App\Models\User;
+use App\Models\Invoice;
+use App\Models\InvoiceItem;
+use App\Models\Payment;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -75,7 +78,8 @@ class ReservationListingOptimizationTest extends TestCase
         ]);
 
         $this->createReservation($user->id, 'Unpaid Client', 'arrive', 'unpaid');
-        $this->createReservation($user->id, 'Paid Client', 'arrive', 'paid');
+        $paidReservation = $this->createReservation($user->id, 'Paid Client', 'en_attente', 'unbilled');
+        $this->createPaidInvoice($paidReservation, 50000);
 
         $response = $this->getJson('/api/reservations/all?date=2026-06-20&status=paid');
 
@@ -83,6 +87,63 @@ class ReservationListingOptimizationTest extends TestCase
         $response->assertJsonCount(1);
         $response->assertJsonFragment(['client_name' => 'Paid Client']);
         $response->assertJsonMissing(['client_name' => 'Unpaid Client']);
+    }
+
+    public function test_reservations_all_filters_paid_status_even_before_checkin(): void
+    {
+        $user = User::create([
+            'name' => 'Reception Test',
+            'email' => 'reservation-listing-paid-precheckin@example.com',
+            'password' => 'password',
+            'role' => 'receptionist',
+            'is_blacklisted' => false,
+        ]);
+
+        $paidBeforeCheckin = $this->createReservation($user->id, 'Paid Before Checkin', 'en_attente', 'unbilled');
+        $paidBeforeCheckin->rooms()->attach($this->createRoom('903')->id, ['price_snapshot_ariary' => 50000]);
+        $this->createPaidInvoice($paidBeforeCheckin, 50000);
+
+        $response = $this->getJson('/api/reservations/all?date=2026-06-20&status=paid');
+
+        $response->assertOk();
+        $response->assertJsonFragment(['client_name' => 'Paid Before Checkin']);
+    }
+
+    public function test_reservations_all_includes_checkout_date_for_one_night_stays(): void
+    {
+        $user = User::create([
+            'name' => 'Reception Test',
+            'email' => 'reservation-listing-boundary@example.com',
+            'password' => 'password',
+            'role' => 'receptionist',
+            'is_blacklisted' => false,
+        ]);
+
+        $reservation = Reservation::create([
+            'user_id' => $user->id,
+            'client_name' => 'Boundary Client',
+            'client_phone' => '0340000123',
+            'customer_phone' => '0340000123',
+            'customer_email' => 'boundary@example.com',
+            'booking_reference' => 'BR-' . uniqid(),
+            'source' => 'Appel',
+            'check_in_date' => '2026-06-22',
+            'check_out_date' => '2026-06-23',
+            'status' => 'arrive',
+            'payment_status' => 'unbilled',
+            'extra_beds' => 0,
+            'extra_mattresses' => 0,
+        ]);
+        $reservation->rooms()->attach($this->createRoom('904')->id, ['price_snapshot_ariary' => 50000]);
+        $this->createPaidInvoice($reservation, 50000);
+
+        $responseCheckoutDay = $this->getJson('/api/reservations/all?date=2026-06-23&status=paid');
+        $responseCheckoutDay->assertOk();
+        $responseCheckoutDay->assertJsonFragment(['client_name' => 'Boundary Client']);
+
+        $responseCheckoutDayAll = $this->getJson('/api/reservations/all?date=2026-06-23&status=all');
+        $responseCheckoutDayAll->assertOk();
+        $responseCheckoutDayAll->assertJsonFragment(['client_name' => 'Boundary Client']);
     }
 
     public function test_reservation_status_summary_returns_counts_without_full_listing(): void
@@ -141,6 +202,41 @@ class ReservationListingOptimizationTest extends TestCase
             'payment_status' => $paymentStatus,
             'extra_beds' => 0,
             'extra_mattresses' => 0,
+        ]);
+    }
+
+    private function createPaidInvoice(Reservation $reservation, int $amount): void
+    {
+        $invoice = Invoice::create([
+            'reservation_id' => $reservation->id,
+            'invoice_number' => 'FACT-' . uniqid(),
+            'total_amount_ariary' => $amount,
+            'tax_amount_ariary' => 0,
+            'discount_mode' => null,
+            'discount_value' => null,
+            'discount_amount_ariary' => 0,
+            'deposit_amount_ariary' => 0,
+            'pdf_path' => null,
+            'finalized_at' => null,
+            'status' => 'paid',
+            'document_type' => 'facture',
+        ]);
+
+        InvoiceItem::create([
+            'invoice_id' => $invoice->id,
+            'description' => 'Séjour chambre',
+            'type' => 'room',
+            'amount_ariary' => $amount,
+            'quantity' => 1,
+        ]);
+
+        Payment::create([
+            'invoice_id' => $invoice->id,
+            'amount_ariary' => $amount,
+            'payment_method' => 'Espèces',
+            'payment_context' => 'payment',
+            'processed_by_name' => 'Reception Test',
+            'processed_by_role' => 'receptionist',
         ]);
     }
 }

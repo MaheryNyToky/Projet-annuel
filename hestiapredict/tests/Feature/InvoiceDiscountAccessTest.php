@@ -11,7 +11,7 @@ class InvoiceDiscountAccessTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_only_admin_can_request_a_discount_on_pdf_generation(): void
+    public function test_receptionist_discount_request_is_ignored_without_blocking_pdf_generation(): void
     {
         $user = User::create([
             'name' => 'Reception Test',
@@ -61,6 +61,7 @@ class InvoiceDiscountAccessTest extends TestCase
             'actor_role' => 'receptionist',
         ]);
 
-        $response->assertStatus(403);
+        $response->assertOk();
+        $response->assertJsonPath('invoice.discount_amount_ariary', 0);
     }
 }

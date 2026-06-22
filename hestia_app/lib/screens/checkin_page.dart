@@ -86,6 +86,54 @@ class _CheckInPageState extends State<CheckInPage> {
     _applyClient(match);
   }
 
+  Future<void> _prefillMissingClientData() async {
+    final needsClientLookup =
+        _dateOfBirth == null ||
+        _idNumberController.text.trim().isEmpty ||
+        (_idType == 'Passeport' &&
+            (_passportValidFrom == null || _passportValidUntil == null));
+
+    if (!needsClientLookup) return;
+
+    final queries = <String>[
+      _contactController.text.trim(),
+      _idNumberController.text.trim(),
+      _fullName,
+      widget.reservation.phone.trim(),
+      widget.reservation.clientName.trim(),
+    ];
+
+    final query = queries.firstWhere(
+      (value) => value.length >= 2,
+      orElse: () => '',
+    );
+    if (query.isEmpty) return;
+
+    final results = await _clientSearchService.search(query);
+    if (!mounted || results.isEmpty) return;
+
+    ClientProfile? match;
+    final normalizedName = widget.reservation.clientName.toLowerCase();
+    final normalizedPhone = widget.reservation.phone.toLowerCase();
+    final normalizedId = _idNumberController.text.trim().toLowerCase();
+
+    for (final client in results) {
+      final fullName = client.displayName.toLowerCase();
+      final phone = (client.phoneNumber ?? '').toLowerCase();
+      final document = client.displayDocumentNumber.toLowerCase();
+
+      if ((normalizedName.isNotEmpty && fullName == normalizedName) ||
+          (normalizedPhone.isNotEmpty && phone == normalizedPhone) ||
+          (normalizedId.isNotEmpty && document == normalizedId)) {
+        match = client;
+        break;
+      }
+    }
+
+    match ??= results.first;
+    _applyClient(match);
+  }
+
   void _applyClient(ClientProfile client) {
     final nameParts = _splitName(client.displayName);
     setState(() {
@@ -155,11 +203,15 @@ class _CheckInPageState extends State<CheckInPage> {
   }
 
   Future<void> _submit() async {
+    await _prefillMissingClientData();
+
     if (!_formKey.currentState!.validate()) return;
     if (_dateOfBirth == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Veuillez sélectionner la date de naissance'),
+          content: Text(
+            'Veuillez sélectionner la date de naissance ou choisir un client existant',
+          ),
         ),
       );
       return;

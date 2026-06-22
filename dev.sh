@@ -5,17 +5,59 @@ set -e
 
 PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 LOG_DIR="$PROJECT_ROOT/.dev-logs"
+AI_REQUIREMENTS="$PROJECT_ROOT/hestia-ai/requirements.txt"
+AI_BOOTSTRAP_VENV="$PROJECT_ROOT/hestia-ai/.venv"
 
 mkdir -p "$LOG_DIR"
 mkdir -p "$LOG_DIR/matplotlib" "$LOG_DIR/cache"
 
+python_has_ai_deps() {
+    local python_bin="$1"
+    "$python_bin" -c "import fastapi, uvicorn, pandas, prophet" >/dev/null 2>&1
+}
+
+bootstrap_ai_python() {
+    local bootstrap_python="$1"
+
+    echo "[AI] Création de l'environnement Python dans $AI_BOOTSTRAP_VENV..." >&2
+    if ! "$bootstrap_python" -m venv "$AI_BOOTSTRAP_VENV" > "$LOG_DIR/ai-bootstrap.log" 2>&1; then
+        echo "[ERREUR] Impossible de créer le venv Python pour l'IA." >&2
+        echo "[LOG] Dernières lignes du log : $LOG_DIR/ai-bootstrap.log" >&2
+        tail -n 40 "$LOG_DIR/ai-bootstrap.log" 2>/dev/null || true
+        return 1
+    fi
+
+    echo "[AI] Installation des dépendances Python..." >&2
+    if ! "$AI_BOOTSTRAP_VENV/bin/python" -m pip install -r "$AI_REQUIREMENTS" > "$LOG_DIR/ai-install.log" 2>&1; then
+        echo "[ERREUR] Installation des dépendances IA impossible." >&2
+        echo "[LOG] Dernières lignes du log : $LOG_DIR/ai-install.log" >&2
+        tail -n 40 "$LOG_DIR/ai-install.log" 2>/dev/null || true
+        return 1
+    fi
+
+    if python_has_ai_deps "$AI_BOOTSTRAP_VENV/bin/python"; then
+        echo "$AI_BOOTSTRAP_VENV/bin/python"
+        return 0
+    fi
+
+    echo "[ERREUR] Le venv IA a bien été créé mais les modules attendus restent indisponibles." >&2
+    return 1
+}
+
 find_ai_python() {
-    for candidate in "$PROJECT_ROOT/hestia-ai/venv/bin/python" "$PROJECT_ROOT/hestia-ai/.venv/bin/python" python3; do
-        if command -v "$candidate" >/dev/null 2>&1 && "$candidate" -c "import fastapi, uvicorn" >/dev/null 2>&1; then
+    local candidate
+
+    for candidate in "$PROJECT_ROOT/hestia-ai/venv/bin/python" "$PROJECT_ROOT/hestia-ai/.venv/bin/python" "$(command -v python3 2>/dev/null)"; do
+        if [ -n "$candidate" ] && [ -x "$candidate" ] && python_has_ai_deps "$candidate"; then
             echo "$candidate"
             return 0
         fi
     done
+
+    if command -v python3 >/dev/null 2>&1; then
+        bootstrap_ai_python "$(command -v python3)"
+        return $?
+    fi
 
     return 1
 }
@@ -40,6 +82,27 @@ wait_for_url() {
     return 1
 }
 
+ensure_laravel_dependencies() {
+    if [ -f "$PROJECT_ROOT/hestiapredict/vendor/autoload.php" ]; then
+        return 0
+    fi
+
+    echo "[Laravel] Dépendances Composer absentes, installation..."
+    if ! composer install --no-interaction --prefer-dist > "$LOG_DIR/composer.log" 2>&1; then
+        echo "[ERREUR] Installation des dépendances Laravel impossible."
+        echo "[LOG] Dernières lignes du log : $LOG_DIR/composer.log"
+        tail -n 40 "$LOG_DIR/composer.log" 2>/dev/null || true
+        return 1
+    fi
+
+    if [ -f "$PROJECT_ROOT/hestiapredict/vendor/autoload.php" ]; then
+        return 0
+    fi
+
+    echo "[ERREUR] Composer s'est terminé sans générer vendor/autoload.php."
+    return 1
+}
+
 echo "Lancement de l'environnement de développement..."
 
 echo "Arrêt des anciens services éventuels..."
@@ -55,7 +118,7 @@ echo "[AI] Lancement sur le port 8001..."
 cd "$PROJECT_ROOT/hestia-ai"
 AI_PYTHON="$(find_ai_python)" || {
     echo "[ERREUR] Aucun environnement Python valide pour l'IA."
-    echo "   Créez/réparez l'environnement avec : cd hestia-ai && python3 -m venv venv && ./venv/bin/python -m pip install fastapi uvicorn pandas"
+    echo "   Créez/réparez l'environnement avec : cd hestia-ai && python3 -m venv .venv && ./.venv/bin/python -m pip install -r requirements.txt"
     exit 1
 }
 nohup env MPLCONFIGDIR="$LOG_DIR/matplotlib" XDG_CACHE_HOME="$LOG_DIR/cache" WATCHFILES_FORCE_POLLING=true \
@@ -67,6 +130,9 @@ wait_for_url "AI" "http://127.0.0.1:8001/health" "$LOG_DIR/ai.log" 30
 echo "[Laravel] Lancement sur le port 8000..."
 cd "$PROJECT_ROOT/hestiapredict"
 touch "$PROJECT_ROOT/database.sqlite"
+if ! ensure_laravel_dependencies; then
+    exit 1
+fi
 echo "[Laravel] Migration de la base..."
 if ! php artisan migrate --force > "$LOG_DIR/migrate.log" 2>&1; then
     echo "[ERREUR] Migration Laravel impossible."

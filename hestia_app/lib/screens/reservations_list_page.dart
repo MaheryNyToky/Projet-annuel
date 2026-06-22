@@ -1316,7 +1316,7 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
               (paymentStatus == 'unpaid' ||
                   paymentStatus == 'partial' ||
                   paymentStatus == 'unbilled'),
-        'paid' => status == 'arrive' && paymentStatus == 'paid',
+        'paid' => paymentStatus == 'paid',
         _ => true,
       };
       return matchesSearch && matchesStatus;
@@ -1370,11 +1370,6 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                   onChanged: (value) {
                     setState(() {
                       _statusFilter = value;
-                      if (value == 'unpaid') {
-                        _selectedDate = _todayOnly.subtract(
-                          const Duration(days: 1),
-                        );
-                      }
                     });
                     _fetchReservations();
                   },
