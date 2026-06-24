@@ -120,7 +120,7 @@ cd ..
 touch database.sqlite
 cd hestiapredict
 php artisan migrate
-php artisan db:seed --class=Database\\Seeders\\KamoroHotelSeeder
+php artisan db:seed
 ```
 
 Comptes de connexion de base après génération locale :
@@ -129,10 +129,10 @@ Comptes de connexion de base après génération locale :
 - Admin : `admin@kamorohotel.com` / `admin123`
 - Réception : `reco1@kamorohotel.com` / `reco123`
 
-Injecter les données de démonstration de l'hôtel :
+Le seed standard recrée seulement les comptes, les chambres et les tarifs. Si tu veux aussi le gros jeu de données de démonstration avec les clients et les réservations de test, lance :
 
 ```bash
-php artisan db:seed --class=KamoroHotelSeeder
+php artisan db:seed --class=ClientTestDatasetSeeder
 ```
 
 Installer les dépendances frontend Laravel :
