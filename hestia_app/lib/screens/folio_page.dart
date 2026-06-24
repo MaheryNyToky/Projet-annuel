@@ -55,6 +55,24 @@ class _FolioPageState extends State<FolioPage> {
     return folioFlag == true || reservationFlag == true || source == 'Booking';
   }
 
+  int _stayNights() {
+    final rawCheckIn =
+        _folio?['check_in']?.toString() ??
+        widget.reservation['check_in']?.toString() ??
+        widget.reservation['check_in_date']?.toString();
+    final rawCheckOut =
+        _folio?['check_out']?.toString() ??
+        widget.reservation['check_out']?.toString() ??
+        widget.reservation['check_out_date']?.toString();
+
+    final checkIn = DateTime.tryParse(rawCheckIn ?? '');
+    final checkOut = DateTime.tryParse(rawCheckOut ?? '');
+    if (checkIn == null || checkOut == null) return 1;
+
+    final nights = checkOut.difference(checkIn).inDays;
+    return nights < 1 ? 1 : nights;
+  }
+
   bool get _canAccess =>
       widget.role != 'receptionist' ||
       widget.reservation['status']?.toString() == 'arrive';
@@ -284,6 +302,7 @@ class _FolioPageState extends State<FolioPage> {
     final descriptionController = TextEditingController();
     final amountController = TextEditingController();
     final quantityController = TextEditingController(text: '1');
+    final stayNights = _stayNights();
 
     return showDialog<Map<String, dynamic>>(
       context: context,
@@ -318,6 +337,15 @@ class _FolioPageState extends State<FolioPage> {
                   prefixIcon: Icon(Icons.numbers),
                 ),
               ),
+              const SizedBox(height: 8),
+              Text(
+                'Les suppléments lit et matelas seront multipliés par $stayNights nuit(s).',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: _muted,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ],
           ),
         ),
@@ -333,11 +361,17 @@ class _FolioPageState extends State<FolioPage> {
               final quantity =
                   int.tryParse(quantityController.text.trim()) ?? 1;
               if (description.isEmpty || amount <= 0 || quantity <= 0) return;
+              final normalizedDescription = description.toLowerCase();
+              final appliesPerNight =
+                  normalizedDescription == 'lit supplémentaire' ||
+                  normalizedDescription == 'lit supplementaire' ||
+                  normalizedDescription == 'matelas supplémentaire' ||
+                  normalizedDescription == 'matelas supplementaire';
               Navigator.pop(context, {
                 'description': description,
                 'type': 'extra',
                 'amount_ariary': amount,
-                'quantity': quantity,
+                'quantity': appliesPerNight ? quantity * stayNights : quantity,
               });
             },
             child: const Text('Ajouter'),

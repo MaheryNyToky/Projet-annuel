@@ -146,6 +146,43 @@ class ReservationListingOptimizationTest extends TestCase
         $responseCheckoutDayAll->assertJsonFragment(['client_name' => 'Boundary Client']);
     }
 
+    public function test_reservations_all_counts_extras_for_each_night_in_total_price(): void
+    {
+        $user = User::create([
+            'name' => 'Reception Test',
+            'email' => 'reservation-listing-nightly-extras@example.com',
+            'password' => 'password',
+            'role' => 'receptionist',
+            'is_blacklisted' => false,
+        ]);
+
+        $reservation = Reservation::create([
+            'user_id' => $user->id,
+            'client_name' => 'Nightly Extras Client',
+            'client_phone' => '0340000456',
+            'customer_phone' => '0340000456',
+            'customer_email' => 'nightly-extras-client@example.com',
+            'booking_reference' => 'BR-' . uniqid(),
+            'source' => 'Appel',
+            'check_in_date' => '2026-06-22',
+            'check_out_date' => '2026-06-25',
+            'status' => 'arrive',
+            'payment_status' => 'unbilled',
+            'extra_beds' => 1,
+            'extra_mattresses' => 2,
+        ]);
+        $reservation->rooms()->attach($this->createRoom('905')->id, ['price_snapshot_ariary' => 50000]);
+
+        $response = $this->getJson('/api/reservations/all?date=2026-06-23&status=all');
+
+        $response->assertOk();
+        $reservationData = collect($response->json())->firstWhere('client_name', 'Nightly Extras Client');
+
+        $this->assertNotNull($reservationData);
+        $this->assertSame(480000, (int) $reservationData['total_price']);
+        $this->assertSame(480000, (int) $reservationData['fixed_total_price']);
+    }
+
     public function test_reservation_status_summary_returns_counts_without_full_listing(): void
     {
         $user = User::create([

@@ -921,8 +921,8 @@ class _FrostedSideNav extends StatelessWidget {
                               role == 'superadmin'
                                   ? 'Super administrateur'
                                   : (role == 'admin'
-                                      ? 'Administrateur'
-                                      : 'Réceptionniste'),
+                                        ? 'Administrateur'
+                                        : 'Réceptionniste'),
                               style: const TextStyle(
                                 color: _muted,
                                 fontSize: 12,
@@ -1275,6 +1275,7 @@ class _QuantitySelector extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.unitPrice,
+    required this.stayNights,
     required this.value,
     required this.onChanged,
     this.maxValue,
@@ -1283,6 +1284,7 @@ class _QuantitySelector extends StatelessWidget {
   final IconData icon;
   final String label;
   final int unitPrice;
+  final int stayNights;
   final int value;
   final ValueChanged<int> onChanged;
   final int? maxValue;
@@ -1310,6 +1312,14 @@ class _QuantitySelector extends StatelessWidget {
                 Text(
                   '${formatPrice(unitPrice)} Ar / unité',
                   style: const TextStyle(color: _muted, fontSize: 12),
+                ),
+                Text(
+                  'Total sur $stayNights nuit${stayNights > 1 ? 's' : ''} : ${formatPrice(unitPrice * stayNights)} Ar',
+                  style: const TextStyle(
+                    color: _primaryDark,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
                 if (maxValue != null)
                   Text(
@@ -1709,14 +1719,18 @@ class _NewBookingPageState extends State<NewBookingPage> {
     return basePrice as int? ?? 0;
   }
 
+  int _stayNights() {
+    final nights = _checkOut.difference(_checkIn).inDays;
+    return nights < 1 ? 1 : nights;
+  }
+
   int _calculateTotalPrice() {
     int total = 0;
-    int nights = _checkOut.difference(_checkIn).inDays;
-    if (nights < 1) nights = 1;
+    final nights = _stayNights();
     for (var room in _selectedRooms) {
       total += _getSuggestedPrice(room) * nights;
     }
-    total += (_extraBeds * 50000) + (_extraMattresses * 30000);
+    total += ((_extraBeds * 50000) + (_extraMattresses * 30000)) * nights;
     return total;
   }
 
@@ -1870,6 +1884,7 @@ class _NewBookingPageState extends State<NewBookingPage> {
                     icon: Icons.bed_outlined,
                     label: 'Lit supplémentaire',
                     unitPrice: 50000,
+                    stayNights: _stayNights(),
                     value: _extraBeds,
                     maxValue: _remainingExtraBeds,
                     onChanged: (value) => setState(() => _extraBeds = value),
@@ -1879,6 +1894,7 @@ class _NewBookingPageState extends State<NewBookingPage> {
                     icon: Icons.airline_seat_individual_suite_outlined,
                     label: 'Matelas supplémentaire',
                     unitPrice: 30000,
+                    stayNights: _stayNights(),
                     value: _extraMattresses,
                     maxValue: _remainingExtraMattresses,
                     onChanged: (value) =>

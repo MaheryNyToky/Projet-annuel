@@ -629,7 +629,7 @@ class BookingService
 
         $extraBeds = $reservation->extra_beds ?? 0;
         $extraMattresses = $reservation->extra_mattresses ?? 0;
-        $extrasPrice = ($extraBeds * 50000) + ($extraMattresses * 30000);
+        $extrasPrice = (($extraBeds * 50000) + ($extraMattresses * 30000)) * $nights;
 
         $totalPrice = ($rooms->sum(fn (Room $room) => (int) $room->pivot->price_snapshot_ariary) * $nights) + $extrasPrice;
         $fixedTotalPrice = ($rooms->sum(fn (Room $room) => (int) $room->base_price_ariary) * $nights) + $extrasPrice;

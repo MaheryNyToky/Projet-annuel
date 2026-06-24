@@ -362,6 +362,11 @@ class PMSController extends Controller
                 $invoice->save();
             }
 
+            if ($invoice->status !== 'finalized' && $invoice->reservation) {
+                $this->syncReservationExtras($invoice, $invoice->reservation);
+                $this->recalculateInvoice($invoice->refresh());
+            }
+
             $invoice->update([
                 'document_type' => $documentType,
             ]);
@@ -436,9 +441,7 @@ class PMSController extends Controller
 
     private function seedRoomItems(Invoice $invoice, Reservation $reservation): void
     {
-        $checkIn = Carbon::parse($reservation->check_in_date);
-        $checkOut = Carbon::parse($reservation->check_out_date);
-        $nights = max(1, $checkIn->diffInDays($checkOut));
+        $nights = $this->reservationNights($reservation);
 
         foreach ($reservation->rooms as $room) {
             $pricePerNight = (int) ($room->pivot->price_snapshot_ariary ?? $room->base_price_ariary);
@@ -455,6 +458,8 @@ class PMSController extends Controller
 
     private function syncReservationExtras(Invoice $invoice, Reservation $reservation): void
     {
+        $nights = $this->reservationNights($reservation);
+
         $invoice->items()
             ->whereIn('description', ['Lit supplémentaire', 'Matelas supplémentaire'])
             ->delete();
@@ -465,7 +470,7 @@ class PMSController extends Controller
                 'description' => 'Lit supplémentaire',
                 'type' => 'extra',
                 'amount_ariary' => self::EXTRA_BED_PRICE_ARIARY,
-                'quantity' => (int) $reservation->extra_beds,
+                'quantity' => (int) $reservation->extra_beds * $nights,
             ]);
         }
 
@@ -475,9 +480,17 @@ class PMSController extends Controller
                 'description' => 'Matelas supplémentaire',
                 'type' => 'extra',
                 'amount_ariary' => self::EXTRA_MATTRESS_PRICE_ARIARY,
-                'quantity' => (int) $reservation->extra_mattresses,
+                'quantity' => (int) $reservation->extra_mattresses * $nights,
             ]);
         }
+    }
+
+    private function reservationNights(Reservation $reservation): int
+    {
+        $checkIn = Carbon::parse($reservation->check_in_date);
+        $checkOut = Carbon::parse($reservation->check_out_date);
+
+        return max(1, $checkIn->diffInDays($checkOut));
     }
 
     private function recalculateInvoice(Invoice $invoice): void
