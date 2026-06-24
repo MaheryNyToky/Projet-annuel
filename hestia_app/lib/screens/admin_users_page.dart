@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -21,6 +22,7 @@ class AdminUsersPage extends StatefulWidget {
 class _AdminUsersPageState extends State<AdminUsersPage> {
   List<dynamic> _users = [];
   bool _isLoading = true;
+  final Random _random = Random.secure();
 
   bool get _isSuperadmin => widget.currentRole == 'superadmin';
   bool get _isPrivileged => widget.currentRole != 'receptionist';
@@ -47,6 +49,21 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
     if (!_isPrivileged) return false;
     if (_isSuperadmin) return true;
     return user['role']?.toString() != 'superadmin';
+  }
+
+  String _staffEmailFromName(String fullName) {
+    final localPart = fullName.trim().toLowerCase().replaceAll(
+      RegExp(r'[^a-z0-9]+'),
+      '',
+    );
+    if (localPart.isEmpty) {
+      return '';
+    }
+    return '$localPart@kamorohotel.com';
+  }
+
+  String _generateStaffPassword() {
+    return _random.nextInt(1000000).toString().padLeft(6, '0');
   }
 
   @override
@@ -80,7 +97,9 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
         setState(() => _users = json.decode(cached));
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Mode dégradé: liste du personnel depuis le cache local.'),
+            content: Text(
+              'Mode dégradé: liste du personnel depuis le cache local.',
+            ),
             backgroundColor: Colors.orange,
           ),
         );
@@ -108,7 +127,7 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
     }
   }
 
-  void _showUserForm({Map<String, dynamic>? user}) {
+  Future<void> _showUserForm({Map<String, dynamic>? user}) async {
     final nameController = TextEditingController(text: user?['name'] ?? '');
     final emailController = TextEditingController(text: user?['email'] ?? '');
     final passwordController = TextEditingController();
@@ -117,137 +136,208 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
     String role = _allowedRoles.contains(initialRole)
         ? initialRole!
         : (_isSuperadmin ? 'superadmin' : 'receptionist');
+    final initialGeneratedEmail = _staffEmailFromName(nameController.text);
+    if (user == null && initialGeneratedEmail.isNotEmpty) {
+      emailController.text = initialGeneratedEmail;
+    }
 
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setModalState) => AlertDialog(
-          title: Text(
-            user == null ? 'Ajouter un personnel' : 'Modifier le profil',
-            style: const TextStyle(fontWeight: FontWeight.bold),
-          ),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: nameController,
-                  decoration: const InputDecoration(
-                    labelText: 'Nom Complet',
-                    prefixIcon: Icon(Icons.person),
-                  ),
+    void syncEmailFromName() {
+      if (user != null && emailController.text.trim().isNotEmpty) {
+        return;
+      }
+
+      final generatedEmail = _staffEmailFromName(nameController.text);
+      if (generatedEmail.isEmpty || emailController.text == generatedEmail) {
+        return;
+      }
+
+      emailController.text = generatedEmail;
+    }
+
+    nameController.addListener(syncEmailFromName);
+
+    void applyGeneratedPassword() {
+      passwordController.text = _generateStaffPassword();
+      obscurePassword = false;
+    }
+
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (context) {
+          return StatefulBuilder(
+            builder: (context, setModalState) {
+              return AlertDialog(
+                title: Text(
+                  user == null ? 'Ajouter un personnel' : 'Modifier le profil',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
-                TextField(
-                  controller: emailController,
-                  decoration: const InputDecoration(
-                    labelText: 'Email Professionnel',
-                    prefixIcon: Icon(Icons.email),
-                  ),
-                ),
-                TextField(
-                  controller: passwordController,
-                  decoration: InputDecoration(
-                    labelText: user == null
-                        ? 'Mot de passe'
-                        : 'Mot de passe à remplacer (optionnel)',
-                    prefixIcon: const Icon(Icons.lock),
-                    helperText: user == null
-                        ? 'Le mot de passe ne s’affiche jamais après sauvegarde.'
-                        : 'Le mot de passe actuel est masqué. Saisis-en un nouveau seulement si tu veux le changer.',
-                    suffixIcon: IconButton(
-                      tooltip: obscurePassword ? 'Afficher' : 'Masquer',
-                      icon: Icon(
-                        obscurePassword
-                            ? Icons.visibility
-                            : Icons.visibility_off,
-                      ),
-                      onPressed: () => setModalState(
-                        () => obscurePassword = !obscurePassword,
-                      ),
-                    ),
-                  ),
-                  obscureText: obscurePassword,
-                ),
-                const SizedBox(height: 15),
-                const Text(
-                  "Niveau d'accès :",
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-                DropdownButtonFormField<String>(
-                  initialValue: role,
-                  isExpanded: true,
-                  items: _allowedRoles
-                      .map(
-                        (value) => DropdownMenuItem(
-                          value: value,
-                          child: Text(_roleLabel(value)),
+                content: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextField(
+                        controller: nameController,
+                        onChanged: (_) => syncEmailFromName(),
+                        decoration: const InputDecoration(
+                          labelText: 'Nom Complet',
+                          prefixIcon: Icon(Icons.person),
                         ),
-                      )
-                      .toList(),
-                  onChanged: (val) {
-                    if (val != null) {
-                      setModalState(() => role = val);
-                    }
-                  },
+                      ),
+                      TextField(
+                        controller: emailController,
+                        decoration: const InputDecoration(
+                          labelText: 'Email Professionnel',
+                          prefixIcon: Icon(Icons.email),
+                        ),
+                      ),
+                      TextField(
+                        controller: passwordController,
+                        obscureText: obscurePassword,
+                        decoration: InputDecoration(
+                          labelText: user == null
+                              ? 'Mot de passe'
+                              : 'Nouveau mot de passe (optionnel)',
+                          prefixIcon: const Icon(Icons.lock),
+                          helperText: user == null
+                              ? 'Le mot de passe est créé uniquement quand tu cliques sur Générer.'
+                              : 'Le mot de passe actuel ne peut pas être affiché. Laisse vide pour le conserver.',
+                          suffixIcon: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                tooltip: 'Générer un mot de passe à 6 chiffres',
+                                icon: const Icon(Icons.casino),
+                                onPressed: () {
+                                  setModalState(() {
+                                    applyGeneratedPassword();
+                                  });
+                                },
+                              ),
+                              IconButton(
+                                tooltip: obscurePassword
+                                    ? 'Afficher'
+                                    : 'Masquer',
+                                icon: Icon(
+                                  obscurePassword
+                                      ? Icons.visibility
+                                      : Icons.visibility_off,
+                                ),
+                                onPressed: () => setModalState(
+                                  () => obscurePassword = !obscurePassword,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          onPressed: () {
+                            setModalState(() {
+                              emailController.text = _staffEmailFromName(
+                                nameController.text,
+                              );
+                            });
+                          },
+                          icon: const Icon(Icons.auto_fix_high),
+                          label: const Text('Remplir l’email depuis le nom'),
+                        ),
+                      ),
+                      const SizedBox(height: 15),
+                      const Text(
+                        "Niveau d'accès :",
+                        style: TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                      DropdownButtonFormField<String>(
+                        initialValue: role,
+                        isExpanded: true,
+                        items: _allowedRoles
+                            .map(
+                              (value) => DropdownMenuItem(
+                                value: value,
+                                child: Text(_roleLabel(value)),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (val) {
+                          if (val != null) {
+                            setModalState(() => role = val);
+                          }
+                        },
+                      ),
+                    ],
+                  ),
                 ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Annuler'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                final data = {
-                  'name': nameController.text,
-                  'email': emailController.text,
-                  'role': role,
-                  'actor_role': widget.currentRole,
-                };
-                if (user != null) data['id'] = user['id'];
-                if (passwordController.text.isNotEmpty) {
-                  data['password'] = passwordController.text;
-                }
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Annuler'),
+                  ),
+                  ElevatedButton(
+                    onPressed: () async {
+                      final data = {
+                        'name': nameController.text,
+                        'email': emailController.text,
+                        'role': role,
+                        'actor_role': widget.currentRole,
+                      };
+                      if (user != null) data['id'] = user['id'];
+                      if (passwordController.text.isNotEmpty) {
+                        data['password'] = passwordController.text;
+                      }
 
-                final url = user == null
-                    ? '$baseUrl/api/users'
-                    : '$baseUrl/api/users/update';
+                      final url = user == null
+                          ? '$baseUrl/api/users'
+                          : '$baseUrl/api/users/update';
 
-                try {
-                  final resp = await http.post(
-                    Uri.parse(url),
-                    headers: {'Content-Type': 'application/json'},
-                    body: json.encode(data),
-                  ).timeout(const Duration(seconds: 5));
-                  if (!context.mounted) return;
-                  if (resp.statusCode == 200) {
-                    Navigator.pop(context);
-                    _fetchUsers();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Personnel mis à jour')),
-                    );
-                  } else {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Erreur: ${resp.body}')),
-                    );
-                  }
-                } catch (e) {
-                  if (!context.mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Erreur de connexion serveur'),
-                    ),
-                  );
-                }
-              },
-              child: const Text('Enregistrer'),
-            ),
-          ],
-        ),
-      ),
-    );
+                      try {
+                        final resp = await http
+                            .post(
+                              Uri.parse(url),
+                              headers: {'Content-Type': 'application/json'},
+                              body: json.encode(data),
+                            )
+                            .timeout(const Duration(seconds: 5));
+                        if (!context.mounted) return;
+                        if (resp.statusCode == 200) {
+                          Navigator.pop(context);
+                          _fetchUsers();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Personnel mis à jour'),
+                            ),
+                          );
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Erreur: ${resp.body}')),
+                          );
+                        }
+                      } catch (e) {
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Erreur de connexion serveur'),
+                          ),
+                        );
+                      }
+                    },
+                    child: const Text('Enregistrer'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      nameController.removeListener(syncEmailFromName);
+      nameController.dispose();
+      emailController.dispose();
+      passwordController.dispose();
+    }
   }
 
   @override
@@ -343,7 +433,8 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
                                                 child: const Text(
                                                   'Supprimer',
                                                   style: TextStyle(
-                                                      color: Colors.red),
+                                                    color: Colors.red,
+                                                  ),
                                                 ),
                                               ),
                                             ],
