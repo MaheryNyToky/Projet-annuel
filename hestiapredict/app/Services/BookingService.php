@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Reservation;
 use App\Models\ReservationAudit;
+use App\Models\Payment;
 use App\Models\Room;
 use App\Models\User;
 use App\Support\PhoneNumber;
@@ -12,6 +13,7 @@ use Carbon\CarbonPeriod;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class BookingService
@@ -550,50 +552,59 @@ class BookingService
         return Reservation::query()
             ->with(['rooms', 'user', 'audits', 'invoice.payments', 'latestAudit', 'latestCheckInAudit', 'latestModificationAudit'])
             ->where('check_in_date', '<=', $date)
-            ->where('check_out_date', '>', $date)
+            ->where('check_out_date', '>=', $date)
             ->get()
             ->map(function (Reservation $reservation) {
                 $formatted = $this->formatReservation($reservation);
 
                 return [
-                    'reference' => $formatted['reference'],
-                    'client_name' => $formatted['client_name'],
+                    ...$formatted,
                     'contact' => $formatted['phone'] !== 'N/A' ? $formatted['phone'] : $formatted['email'],
-                    'check_in' => $formatted['check_in'],
-                    'check_out' => $formatted['check_out'],
-                    'status' => $formatted['status'],
-                    'payment_status' => $formatted['payment_status'],
-                    'source' => $formatted['source'],
-                    'total_price' => $formatted['total_price'],
-                    'fixed_total_price' => $formatted['fixed_total_price'],
-                    'paid_amount_ariary' => $formatted['paid_amount_ariary'],
-                    'deposit_amount_ariary' => $formatted['deposit_amount_ariary'],
-                    'cancelled_by_name' => $formatted['cancelled_by_name'],
-                    'latest_payment_processed_by' => $formatted['latest_payment_processed_by'],
-                    'latest_payment_processed_by_role' => $formatted['latest_payment_processed_by_role'],
-                    'latest_payment_method' => $formatted['latest_payment_method'],
-                    'latest_deposit_processed_by' => $formatted['latest_deposit_processed_by'],
-                    'latest_deposit_processed_by_role' => $formatted['latest_deposit_processed_by_role'],
-                    'latest_deposit_method' => $formatted['latest_deposit_method'],
-                    'payment_methods_display' => $formatted['payment_methods_display'],
-                    'is_booking' => $formatted['is_booking'],
-                    'receptionist' => $formatted['receptionist'],
-                    'check_in_by' => $formatted['check_in_by'],
-                    'check_in_role' => $formatted['check_in_role'],
-                    'check_in_at' => $formatted['check_in_at'],
-                    'modified_by' => $formatted['modified_by'],
-                    'modified_by_role' => $formatted['modified_by_role'],
-                    'modified_at' => $formatted['modified_at'],
-                    'modified_details' => $formatted['modified_details'],
-                    'last_action' => $formatted['last_action'],
-                    'last_action_by' => $formatted['last_action_by'],
-                    'last_action_role' => $formatted['last_action_role'],
-                    'last_action_at' => $formatted['last_action_at'],
-                    'last_action_details' => $formatted['last_action_details'],
-                    'rooms' => $formatted['rooms'],
-                    'room_numbers' => $formatted['room_numbers'],
+                    'visit_count' => $this->visitCountForReservation($reservation),
                 ];
             });
+    }
+
+    private function visitCountForReservation(Reservation $reservation): int
+    {
+        $signatureParts = [
+            Str::lower(Str::ascii(trim((string) ($reservation->customer_phone ?: $reservation->client_phone ?: '')))),
+            Str::lower(Str::ascii(trim((string) ($reservation->customer_email ?: '')))),
+            Str::lower(Str::ascii(trim((string) ($reservation->client_name ?: '')))),
+        ];
+
+        $signature = implode('|', array_filter($signatureParts, fn ($part) => $part !== ''));
+        if ($signature === '') {
+            return 0;
+        }
+
+        $reservations = Reservation::query()
+            ->with(['invoice', 'invoice.payments'])
+            ->get()
+            ->filter(function (Reservation $candidate) {
+                $invoice = $candidate->invoice;
+                $paymentStatus = (string) ($candidate->payment_status ?? '');
+                $invoiceStatus = (string) ($invoice?->status ?? '');
+                $balance = (int) ($invoice?->balance_amount_ariary ?? 0);
+
+                return $candidate->status !== 'annule'
+                    && (
+                        $paymentStatus === 'paid'
+                        || $invoiceStatus === 'paid'
+                        || $balance <= 0
+                    );
+            });
+
+        return $reservations->filter(function (Reservation $candidate) use ($signature) {
+            $candidateParts = [
+                Str::lower(Str::ascii(trim((string) ($candidate->customer_phone ?: $candidate->client_phone ?: '')))),
+                Str::lower(Str::ascii(trim((string) ($candidate->customer_email ?: '')))),
+                Str::lower(Str::ascii(trim((string) ($candidate->client_name ?: '')))),
+            ];
+
+            $candidateSignature = implode('|', array_filter($candidateParts, fn ($part) => $part !== ''));
+            return $candidateSignature === $signature;
+        })->count();
     }
 
     public function formatReservation(Reservation $reservation): array
@@ -648,7 +659,7 @@ class BookingService
             ->sortByDesc('created_at')
             ->first();
         $paymentMethods = $invoice?->relationLoaded('payments')
-            ? $invoice->payments->pluck('payment_method')->filter()->unique()->values()
+            ? $invoice->payments->map(fn (Payment $payment) => $this->paymentMethodDisplayLabel($payment))->filter()->unique()->values()
             : collect();
         $paymentMethodsDisplay = $paymentMethods->isNotEmpty()
             ? $paymentMethods->implode(' / ')
@@ -666,6 +677,12 @@ class BookingService
                     ->sortByDesc('created_at')
                     ->first()
                 : null);
+        $cancelAudit = $reservation->relationLoaded('audits')
+            ? $reservation->audits
+                ->where('action', 'cancelled')
+                ->sortByDesc('created_at')
+                ->first()
+            : null;
         $modificationAudit = $reservation->latestModificationAudit
             ?? ($reservation->relationLoaded('audits')
                 ? $reservation->audits
@@ -696,6 +713,22 @@ class BookingService
             'room_ids' => $rooms->pluck('id')->values(),
             'room_details' => $roomDetails,
             'room_numbers' => $roomNumbers,
+            'guest' => $reservation->guest ? [
+                'id' => $reservation->guest->id,
+                'full_name' => $reservation->guest->full_name,
+                'first_name' => $reservation->guest->first_name,
+                'last_name' => $reservation->guest->last_name,
+                'phone_number' => $reservation->guest->phone_number,
+                'sex' => $reservation->guest->sex,
+                'date_of_birth' => optional($reservation->guest->date_of_birth)->toDateString(),
+                'passport_valid_from' => optional($reservation->guest->passport_valid_from)->toDateString(),
+                'passport_valid_until' => optional($reservation->guest->passport_valid_until)->toDateString(),
+                'id_type' => $reservation->guest->id_type,
+                'id_number' => $reservation->guest->id_number,
+                'id_document_number' => $reservation->guest->id_document_number,
+                'id_photo_path' => $reservation->guest->id_photo_path,
+                'loyalty_count' => (int) $reservation->guest->loyalty_count,
+            ] : null,
             'extra_beds' => $extraBeds,
             'extra_mattresses' => $extraMattresses,
             'deposit_amount_ariary' => (int) ($invoice?->deposit_amount_ariary ?? 0),
@@ -708,6 +741,9 @@ class BookingService
             'check_in_by' => $checkInAudit?->actor_name ?? 'N/A',
             'check_in_role' => $checkInAudit?->actor_role,
             'check_in_at' => optional($checkInAudit?->created_at)->toDateTimeString(),
+            'cancelled_by_role' => $cancelAudit?->actor_role,
+            'cancelled_by_name' => $reservation->cancelled_by_name ?? $cancelAudit?->actor_name ?? 'N/A',
+            'cancelled_at' => optional($reservation->cancelled_at ?? $cancelAudit?->created_at)->toDateTimeString(),
             'modified_by' => $modificationAudit?->actor_name ?? 'N/A',
             'modified_by_role' => $modificationAudit?->actor_role,
             'modified_at' => optional($modificationAudit?->created_at)->toDateTimeString(),
@@ -721,17 +757,46 @@ class BookingService
             'invoice_status' => $invoice?->status ?? 'none',
             'document_type' => $invoice?->document_type ?? 'facture',
             'pdf_url' => $invoice?->pdf_path ? url("/api/invoices/{$invoice->id}/pdf") : null,
+            'payments' => $payments->map(fn (Payment $payment) => [
+                'id' => $payment->id,
+                'amount_ariary' => (int) $payment->amount_ariary,
+                'amount_received_ariary' => (int) ($payment->amount_received_ariary ?? $payment->amount_ariary),
+                'change_given_ariary' => (int) ($payment->change_given_ariary ?? 0),
+                'payment_method' => $payment->payment_method,
+                'payment_operator' => $payment->payment_operator,
+                'payment_context' => $payment->payment_context ?? 'payment',
+                'reference' => $payment->reference,
+                'processed_by_name' => $payment->processed_by_name,
+                'processed_by_role' => $payment->processed_by_role,
+                'created_at' => optional($payment->created_at)->toDateTimeString(),
+            ])->values(),
             'latest_payment_processed_by' => $latestPayment?->processed_by_name,
             'latest_payment_processed_by_role' => $latestPayment?->processed_by_role,
-            'latest_payment_method' => $latestPayment?->payment_method,
+            'latest_payment_method' => $latestPayment ? $this->paymentMethodDisplayLabel($latestPayment) : null,
             'latest_payment_operator' => $latestPayment?->payment_operator,
             'latest_deposit_processed_by' => $latestDeposit?->processed_by_name,
             'latest_deposit_processed_by_role' => $latestDeposit?->processed_by_role,
-            'latest_deposit_method' => $latestDeposit?->payment_method,
+            'latest_deposit_method' => $latestDeposit ? $this->paymentMethodDisplayLabel($latestDeposit) : null,
             'latest_deposit_operator' => $latestDeposit?->payment_operator,
             'payment_methods' => $paymentMethods->all(),
             'payment_methods_display' => $paymentMethodsDisplay,
             'created_at' => optional($reservation->created_at)->toDateTimeString(),
         ];
+    }
+
+    private function paymentMethodDisplayLabel(?Payment $payment): ?string
+    {
+        if (! $payment) {
+            return null;
+        }
+
+        $method = trim((string) ($payment->payment_method ?? ''));
+        $operator = trim((string) ($payment->payment_operator ?? ''));
+
+        if (preg_match('/^mobile\s*money$/i', $method) && $operator !== '') {
+            return $operator;
+        }
+
+        return $method !== '' ? $method : ($operator !== '' ? $operator : null);
     }
 }

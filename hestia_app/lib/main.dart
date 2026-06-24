@@ -507,25 +507,46 @@ class _StaffDashboardState extends State<StaffDashboard> {
     }
 
     http
-        .get(
-          Uri.parse(
-            '$baseUrl/api/dashboard/reservation-status-summary?date=$dateStr',
-          ),
-        )
+        .get(Uri.parse('$baseUrl/api/dashboard/audit-date?date=$dateStr'))
         .then((summaryResp) {
           if (!mounted || summaryResp.statusCode != 200) return;
           final summary = json.decode(summaryResp.body);
+          final confirmed = summary['rooms_confirmed'] is num
+              ? summary['rooms_confirmed'].toInt()
+              : 0;
+          final estimated = summary['rooms_estimated'] is num
+              ? summary['rooms_estimated'].toInt()
+              : confirmed;
           setState(() {
-            _pendingGuestsCount = summary['pending'] is num
-                ? summary['pending'].toInt()
-                : 0;
-            _arrivedGuestsCount = summary['arrived'] is num
-                ? summary['arrived'].toInt()
+            _arrivedGuestsCount = confirmed;
+            _pendingGuestsCount = estimated > confirmed
+                ? estimated - confirmed
                 : 0;
           });
         })
         .catchError((e) {
-          debugPrint("Pending guests fetch error: $e");
+          debugPrint("Occupancy summary fetch error: $e");
+          http
+              .get(
+                Uri.parse(
+                  '$baseUrl/api/dashboard/reservation-status-summary?date=$dateStr',
+                ),
+              )
+              .then((fallbackResp) {
+                if (!mounted || fallbackResp.statusCode != 200) return;
+                final summary = json.decode(fallbackResp.body);
+                setState(() {
+                  _pendingGuestsCount = summary['pending'] is num
+                      ? summary['pending'].toInt()
+                      : 0;
+                  _arrivedGuestsCount = summary['arrived'] is num
+                      ? summary['arrived'].toInt()
+                      : 0;
+                });
+              })
+              .catchError((fallbackError) {
+                debugPrint("Fallback occupancy fetch error: $fallbackError");
+              });
         });
 
     http
@@ -1111,15 +1132,18 @@ class _ReceptionDashboardContent extends StatelessWidget {
       }
     }
 
-    final normalizedCandidates =
-        keyCandidates.map(_normalizeKey).where((value) => value.isNotEmpty);
+    final normalizedCandidates = keyCandidates
+        .map(_normalizeKey)
+        .where((value) => value.isNotEmpty);
     for (final entry in aiPredictions.entries) {
       final entryKey = _normalizeKey(entry.key.toString());
       if (entry.value is! List) continue;
-      if (!normalizedCandidates.any((candidate) =>
-          entryKey == candidate ||
-          entryKey.contains(candidate) ||
-          candidate.contains(entryKey))) {
+      if (!normalizedCandidates.any(
+        (candidate) =>
+            entryKey == candidate ||
+            entryKey.contains(candidate) ||
+            candidate.contains(entryKey),
+      )) {
         continue;
       }
       final predictions = entry.value as List<dynamic>;
@@ -1242,10 +1266,7 @@ class _ReceptionDashboardContent extends StatelessWidget {
     return order
         .where((label) => grouped.containsKey(label))
         .map(
-          (label) => _RoomCategoryGroup(
-            title: label,
-            items: grouped[label]!,
-          ),
+          (label) => _RoomCategoryGroup(title: label, items: grouped[label]!),
         )
         .toList();
   }
@@ -1352,10 +1373,7 @@ class _ReceptionDashboardContent extends StatelessWidget {
 }
 
 class _RoomCategoryGroup {
-  const _RoomCategoryGroup({
-    required this.title,
-    required this.items,
-  });
+  const _RoomCategoryGroup({required this.title, required this.items});
 
   final String title;
   final List<Map<String, dynamic>> items;
@@ -1520,10 +1538,7 @@ class _QuantitySelector extends StatelessWidget {
                 if (maxValue != null)
                   Text(
                     'Restant : $maxValue',
-                    style: const TextStyle(
-                      color: _muted,
-                      fontSize: 12,
-                    ),
+                    style: const TextStyle(color: _muted, fontSize: 12),
                   ),
               ],
             ),
@@ -2130,7 +2145,8 @@ class _NewBookingPageState extends State<NewBookingPage> {
                       children: [
                         _SummaryLine(
                           label: 'Prix par nuit chambres',
-                          value: '${formatPrice(_calculateRoomNightPrice())} Ar',
+                          value:
+                              '${formatPrice(_calculateRoomNightPrice())} Ar',
                         ),
                         const SizedBox(height: 6),
                         _SummaryLine(
@@ -2140,7 +2156,8 @@ class _NewBookingPageState extends State<NewBookingPage> {
                         const SizedBox(height: 6),
                         _SummaryLine(
                           label: 'Prix par nuit option',
-                          value: '${formatPrice(_calculateExtrasNightPrice())} Ar',
+                          value:
+                              '${formatPrice(_calculateExtrasNightPrice())} Ar',
                         ),
                         const SizedBox(height: 6),
                         _SummaryLine(

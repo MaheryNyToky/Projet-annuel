@@ -192,10 +192,10 @@
                 <article class="bento-card col-span-1 overflow-hidden p-6 sm:p-8 xl:col-span-8">
                     <div class="flex flex-col gap-8 xl:flex-row xl:items-start xl:justify-between">
                         <div class="max-w-3xl">
-                            <p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">Analyse et management</p>
+                            <p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">Vue du jour</p>
                             <h1 class="display-serif mt-3 text-5xl leading-none text-[var(--ink)] sm:text-6xl lg:text-7xl">Kamoro Hotel</h1>
                             <p class="mt-4 max-w-2xl text-sm leading-6 text-[var(--muted)] sm:text-base">
-                                Vue éditoriale des revenus, de l'occupation et de la tarification dynamique. L'ensemble reste opérationnel, mais la lecture doit ressembler à un magazine de décoration haut de gamme.
+                                Suivi de l'occupation, des réservations et des tarifs sur la date sélectionnée.
                             </p>
                         </div>
 
@@ -226,54 +226,40 @@
                     <div class="mt-4">
                         <input type="date" id="global-date" onchange="refreshAll()" class="h-12 w-full rounded-full border border-[rgba(68,52,39,0.12)] bg-white/70 px-4 text-sm font-semibold text-[var(--ink)] outline-none transition focus:border-[var(--accent)] focus:ring-2 focus:ring-[rgba(31,118,101,0.12)]">
                     </div>
-                    <p class="mt-4 text-sm leading-6 text-[var(--muted)]">Le tableau ajuste l'occupation, les réservations actives et les revenus sur la date sélectionnée.</p>
+                    <p class="mt-4 text-sm leading-6 text-[var(--muted)]">Les données se recalculent selon la date choisie.</p>
                 </article>
 
                 <article class="bento-card col-span-1 p-6 sm:p-7 xl:col-span-3">
                     <p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">CA officiel</p>
                     <p class="kpi-value mt-4 text-[var(--ink)]" id="stat-ca-official">0 Ar</p>
-                    <p class="mt-4 text-sm text-[var(--muted)]">Clients arrivés uniquement.</p>
+                    <p class="mt-4 text-sm text-[var(--muted)]">Arrivées confirmées.</p>
                 </article>
 
                 <article class="bento-card col-span-1 p-6 sm:p-7 xl:col-span-3">
                     <p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">CA en attente</p>
                     <p class="kpi-value mt-4 text-[var(--ink)]" id="stat-ca-pending">0 Ar</p>
-                    <p class="mt-4 text-sm text-[var(--muted)]">Réservations non confirmées.</p>
+                    <p class="mt-4 text-sm text-[var(--muted)]">Réservations en attente.</p>
                 </article>
 
                 <article class="bento-card col-span-1 p-6 sm:p-7 xl:col-span-3">
-                    <p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">Occupation estimée</p>
-                    <p class="kpi-value mt-4 text-[var(--ink)]"><span id="stat-rooms-estimated">0</span></p>
-                    <p class="mt-4 text-sm text-[var(--muted)]"><span id="stat-rooms-confirmed">0</span> chambres confirmées.</p>
+                    <p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">Occupation</p>
+                    <p class="kpi-value mt-4 text-[var(--ink)]"><span id="stat-rooms-confirmed">0</span></p>
+                    <p class="mt-4 text-sm text-[var(--muted)]">Confirmées.</p>
+                    <p class="mt-2 text-sm font-semibold text-[var(--muted)]">En attente : <span id="stat-rooms-pending" class="font-black text-[var(--ink)]">0</span></p>
                 </article>
 
                 <article class="bento-card col-span-1 p-6 sm:p-7 xl:col-span-3">
-                    <p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">CA cumulé officiel</p>
+                    <p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">CA cumulé</p>
                     <p class="kpi-value mt-4 text-[var(--ink)]" id="stat-ca-total">0 Ar</p>
                     <p class="mt-4 text-sm text-[var(--muted)]" id="ca-period">Période</p>
                 </article>
-
-                <aside class="col-span-1 space-y-4 xl:col-span-4">
-                    <article class="bento-card p-6">
-                        <p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">RevPAR</p>
-                        <p class="display-serif mt-3 text-4xl font-semibold text-[var(--ink)]" id="finance-revpar">0 Ar</p>
-                    </article>
-                    <article class="bento-card p-6">
-                        <p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">Occupation réelle</p>
-                        <p class="display-serif mt-3 text-4xl font-semibold text-[var(--ink)]" id="finance-occ-rate">0%</p>
-                    </article>
-                    <article class="bento-card p-6">
-                        <p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">Prix moyen</p>
-                        <p class="display-serif mt-3 text-4xl font-semibold text-[var(--ink)]" id="finance-adr">0 Ar</p>
-                    </article>
-                </aside>
 
                 <article class="bento-card col-span-1 p-6 sm:p-7 xl:col-span-12">
                     <div class="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
                         <div>
                             <p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">Recherche client</p>
-                            <h2 class="display-serif mt-2 text-4xl font-semibold text-[var(--ink)]">Historique complet</h2>
-                            <p class="mt-2 text-sm text-[var(--muted)]">Tape le nom ou le prénom d’un client pour voir ses réservations passées, en cours et à venir, ainsi que l’état de la facture.</p>
+                            <h2 class="display-serif mt-2 text-4xl font-semibold text-[var(--ink)]">Historique</h2>
+                            <p class="mt-2 text-sm text-[var(--muted)]">Tape un nom pour retrouver ses séjours et son état de facturation.</p>
                         </div>
                         <div class="flex w-full max-w-2xl gap-3">
                             <input
@@ -290,26 +276,30 @@
                             >
                                 Rechercher
                             </button>
+                            <button
+                                type="button"
+                                onclick="loadAllClientHistory()"
+                                class="pill-btn inline-flex items-center justify-center gap-2 bg-white/80 px-5 text-sm font-bold text-[var(--ink)] transition hover:bg-white"
+                            >
+                                Tout
+                            </button>
                         </div>
                     </div>
-                    <div id="client-history-summary" class="mt-4 text-sm font-semibold text-[var(--muted)]">Aucune recherche lancée.</div>
+                    <div id="client-history-summary" class="mt-4 text-sm font-semibold text-[var(--muted)]">Aucun historique affiché. Recherche un client ou clique sur Tout.</div>
                     <div class="table-shell mobile-card-table mt-6">
-                        <table class="data-table w-full text-left text-sm">
-                            <thead>
-                                <tr>
-                                    <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortClientHistoryByKey('period')">Période</th>
-                                    <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortClientHistoryByKey('reference')">Référence</th>
+                            <table class="data-table w-full text-left text-sm">
+                                <thead>
+                                    <tr>
+                                    <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortClientHistoryByKey('reference')">Réf.</th>
                                     <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortClientHistoryByKey('client_name')">Client</th>
-                                    <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortClientHistoryByKey('contact')">Contact</th>
                                     <th class="px-5 py-3">Chambre(s)</th>
                                     <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortClientHistoryByKey('check_in_date')">Séjour</th>
-                                    <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortClientHistoryByKey('receptionist')">Pris par</th>
                                     <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortClientHistoryByKey('status')">Check-in</th>
                                     <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortClientHistoryByKey('invoice_status')">Facture</th>
                                     <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortClientHistoryByKey('payment_status')">Paiement</th>
-                                    <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortClientHistoryByKey('deposit_amount_ariary')">Acompte</th>
                                     <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortClientHistoryByKey('fixed_total_price')">Total</th>
-                                    <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortClientHistoryByKey('balance_amount_ariary')">Reste à payer</th>
+                                    <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortClientHistoryByKey('balance_amount_ariary')">Reste</th>
+                                    <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortClientHistoryByKey('period')">Période</th>
                                 </tr>
                             </thead>
                             <tbody id="client-history-table-body" class="divide-y divide-[rgba(68,52,39,0.08)]"></tbody>
@@ -323,11 +313,11 @@
                         <div class="flex flex-wrap gap-2">
                             <button onclick="switchTab('predictions')" id="btn-predictions" class="pill-btn active inline-flex items-center justify-center gap-2 px-4 text-sm font-bold">
                                 <svg class="icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="m4 16 5-5 4 4 7-7"/><path stroke-linecap="round" stroke-linejoin="round" d="M14 8h6v6"/></svg>
-                                Prévisions
+                                Vue du jour
                             </button>
                             <button onclick="switchTab('pricing')" id="btn-pricing" class="pill-btn inline-flex items-center justify-center gap-2 px-4 text-sm font-bold text-[var(--muted)] hover:bg-white/60 hover:text-[var(--ink)]">
                                 <svg class="icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M20 7H4"/><path stroke-linecap="round" stroke-linejoin="round" d="M16 12H4"/><path stroke-linecap="round" stroke-linejoin="round" d="M12 17H4"/></svg>
-                                Tarifs
+                                Tarifs / IA
                             </button>
                             <button onclick="switchTab('reservations')" id="btn-reservations" class="pill-btn inline-flex items-center justify-center gap-2 px-4 text-sm font-bold text-[var(--muted)] hover:bg-white/60 hover:text-[var(--ink)]">
                                 <svg class="icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3"/><path stroke-linecap="round" stroke-linejoin="round" d="M16 7V3"/><path stroke-linecap="round" stroke-linejoin="round" d="M4 11h16"/><path stroke-linecap="round" stroke-linejoin="round" d="M5 5h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z"/></svg>
@@ -335,7 +325,7 @@
                             </button>
                             <button onclick="switchTab('finance')" id="btn-finance" class="pill-btn inline-flex items-center justify-center gap-2 px-4 text-sm font-bold text-[var(--muted)] hover:bg-white/60 hover:text-[var(--ink)]">
                                 <svg class="icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 19h16"/><path stroke-linecap="round" stroke-linejoin="round" d="M7 16V9"/><path stroke-linecap="round" stroke-linejoin="round" d="M12 16V5"/><path stroke-linecap="round" stroke-linejoin="round" d="M17 16v-4"/></svg>
-                                Performance
+                                Finance / IA
                             </button>
                         </div>
 
@@ -349,7 +339,7 @@
                                 <p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">Panneau flottant</p>
                                 <div class="mt-4 space-y-4">
                                     <div>
-                                        <label for="prediction-days" class="mb-2 block text-sm font-bold text-[var(--muted)]">Horizon de prévision</label>
+                                        <label for="prediction-days" class="mb-2 block text-sm font-bold text-[var(--muted)]">Horizon IA</label>
                                         <select id="prediction-days" onchange="loadAILogic()" class="h-11 w-full rounded-full border border-[rgba(68,52,39,0.12)] bg-white/80 px-4 text-sm font-semibold text-[var(--ink)] outline-none transition focus:border-[var(--accent)] focus:ring-2 focus:ring-[rgba(31,118,101,0.12)]">
                                             <option value="1">Aujourd'hui</option>
                                             <option value="7">7 jours</option>
@@ -361,19 +351,13 @@
                                         </select>
                                     </div>
                                     <div class="sand-panel rounded-[24px] px-4 py-3">
-                                        <p class="text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">CA estimé par IA</p>
+                                        <p class="text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">CA IA</p>
                                         <p class="display-serif mt-2 text-3xl font-semibold text-[var(--ink)]" id="stat-ca-ia">0 Ar</p>
                                     </div>
                                 </div>
                             </div>
                         </div>
                     </div>
-                </article>
-
-                <article class="bento-card col-span-1 p-6 xl:col-span-4">
-                    <p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">Narration financière</p>
-                    <p class="display-serif mt-4 text-4xl font-semibold leading-none text-[var(--ink)]" id="finance-total-ai">0 Ar</p>
-                    <p class="mt-4 text-sm leading-6 text-[var(--muted)]">Lecture synthétique du potentiel journalier issu de la tarification dynamique.</p>
                 </article>
 
                 <section id="tab-predictions" class="tab-content col-span-1 xl:col-span-8">
@@ -401,7 +385,6 @@
                                 <thead>
                                     <tr>
                                         <th class="px-5 py-3">Catégorie</th>
-                                        <th class="px-5 py-3">Modèle</th>
                                         <th class="px-5 py-3">Prix fixe</th>
                                         <th class="px-5 py-3">Prix ajusté IA</th>
                                     </tr>
@@ -421,17 +404,15 @@
                             <table class="data-table w-full text-left text-sm">
                                 <thead>
                                     <tr>
-                                        <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortReservations('reference')">Référence</th>
+                                        <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortReservations('reference')">Réf.</th>
                                         <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortReservations('client_name')">Client</th>
-                                        <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortReservations('contact')">Contact</th>
                                         <th class="px-5 py-3">Chambre(s)</th>
                                         <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortReservations('check_in')">Séjour</th>
-                                        <th class="px-5 py-3">Pris par</th>
                                         <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortReservations('status')">Check-in</th>
+                                        <th class="px-5 py-3">Facture</th>
                                         <th class="px-5 py-3">Paiement</th>
-                                        <th class="px-5 py-3">Acompte</th>
                                         <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortReservations('fixed_total_price')">Total</th>
-                                        <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortReservations('balance_amount_ariary')">Reste à payer</th>
+                                        <th class="px-5 py-3 cursor-pointer hover:text-[var(--accent)]" onclick="sortReservations('balance_amount_ariary')">Reste</th>
                                     </tr>
                                 </thead>
                                 <tbody id="reservations-table-body" class="divide-y divide-[rgba(68,52,39,0.08)]"></tbody>
@@ -490,7 +471,7 @@
                                             <th class="px-5 py-3">Date</th>
                                             <th class="px-5 py-3">Chambres</th>
                                             <th class="px-5 py-3">CA prix fixe</th>
-                                            <th class="px-5 py-3">CA IA simulé</th>
+                                            <th class="px-5 py-3">CA IA</th>
                                             <th class="px-5 py-3">Gain / perte</th>
                                         </tr>
                                     </thead>
@@ -506,15 +487,20 @@
     </div>
 
     <script>
+        const kamoroDashboardSessionKey = 'kamoro_dashboard_tab_active';
+        const kamoroDashboardLogoutUrl = '{{ route('dashboard.logout') }}';
+        const kamoroDashboardLoginUrl = '{{ route('dashboard.login') }}';
         let currentChart = null;
         let financeChart = null;
         let globalAiDailyCa = 0;
         let allReservationsData = [];
         let clientHistoryData = [];
+        let clientHistoryMode = 'idle';
+        let clientHistoryQuery = '';
         let sortDirection = 1;
         let lastSortKey = '';
-        let clientHistorySortKey = 'check_in_date';
-        let clientHistorySortDirection = -1;
+        let clientHistorySortKey = 'client_name';
+        let clientHistorySortDirection = 1;
 
         const chartGridColor = 'rgba(117, 105, 94, 0.16)';
         const chartTextColor = '#75695e';
@@ -634,7 +620,6 @@
             runAudit();
             loadReservations();
             loadAiRevenueSummary();
-            searchClientHistory(true);
         }
 
         function updateConnectionState(isFallback) {
@@ -675,7 +660,7 @@
                     globalAiDailyCa = 0;
 
                     if (!data.results || Object.keys(data.results).length === 0) {
-                        tableBody.innerHTML = '<tr><td colspan="4" class="px-5 py-8 text-center text-[var(--muted)]">Aucune donnée tarifaire disponible.</td></tr>';
+                        tableBody.innerHTML = '<tr><td colspan="3" class="px-5 py-8 text-center text-[var(--muted)]">Aucune donnée tarifaire disponible.</td></tr>';
                         return;
                     }
 
@@ -689,11 +674,11 @@
                         const adjustedPrice = specificDay.adjusted_price_ariary || specificDay.suggested_price_ariary || fixedPrice;
                         const isSamePrice = adjustedPrice === fixedPrice;
                         const fixedLabel = specificDay.is_fixed_price ? 'Prix non ajustable' : 'Prix de référence';
+                        const categoryLabel = model && model !== 'Standard' ? `${type} · ${model}` : type;
 
                         const row = document.createElement('tr');
                         row.innerHTML = `
-                            <td data-label="Catégorie" class="px-5 py-4 font-bold text-[var(--ink)]">${type}</td>
-                            <td data-label="Modèle" class="px-5 py-4">${model}</td>
+                            <td data-label="Catégorie" class="px-5 py-4 font-bold text-[var(--ink)]">${categoryLabel}</td>
                             <td data-label="Prix fixe" class="px-5 py-4">
                                 <div class="font-semibold">${formatMoney(fixedPrice)}</div>
                                 <div class="text-xs text-[var(--muted)]">${fixedLabel}</div>
@@ -711,9 +696,18 @@
                         }
                     });
 
-                    document.getElementById('stat-ca-ia').innerText = formatMoney(globalAiDailyCa);
-                    document.getElementById('finance-total-ai').innerText = formatMoney(globalAiDailyCa);
-                    document.getElementById('finance-total-ai-side').innerText = formatMoney(globalAiDailyCa);
+                    const statCaIa = document.getElementById('stat-ca-ia');
+                    if (statCaIa) {
+                        statCaIa.innerText = formatMoney(globalAiDailyCa);
+                    }
+                    const financeTotalAi = document.getElementById('finance-total-ai');
+                    if (financeTotalAi) {
+                        financeTotalAi.innerText = formatMoney(globalAiDailyCa);
+                    }
+                    const financeTotalAiSide = document.getElementById('finance-total-ai-side');
+                    if (financeTotalAiSide) {
+                        financeTotalAiSide.innerText = formatMoney(globalAiDailyCa);
+                    }
                     renderPredictionChart(data.results);
                     updateFinanceChart();
                 })
@@ -845,17 +839,14 @@
         function clientHistorySortLabel(key) {
             const labels = {
                 period: 'Période',
-                reference: 'Référence',
+                reference: 'Réf.',
                 client_name: 'Client',
-                contact: 'Contact',
                 check_in_date: 'Séjour',
-                receptionist: 'Pris par',
                 status: 'Check-in',
                 invoice_status: 'Facture',
                 payment_status: 'Paiement',
-                deposit_amount_ariary: 'Acompte',
                 fixed_total_price: 'Total',
-                balance_amount_ariary: 'Reste à payer',
+                balance_amount_ariary: 'Reste',
             };
 
             return labels[key] || key;
@@ -872,16 +863,16 @@
                     ? 'paid'
                     : (normalizedStatus === 'arrive_unpaid' ? 'unpaid' : normalizedPayment);
                 const paymentLabel = effectivePayment === 'paid'
-                    ? 'Arrivé payé'
+                    ? 'Payé'
                     : (effectivePayment === 'partial' || effectivePayment === 'unpaid' || effectivePayment === 'unbilled'
-                        ? 'Arrivé non payé'
+                        ? 'Non payé'
                         : 'Arrivé');
-                const suffix = processedByName ? `<span class="block text-[10px] font-semibold text-[var(--muted)]">par ${processedByName}</span>` : '';
-                return `<span class="inline-flex flex-col rounded-full bg-white/75 px-3 py-2 text-xs font-black leading-tight text-emerald-700">${paymentLabel}${suffix}</span>`;
+                const title = processedByName ? ` title="Par ${processedByName}"` : '';
+                return `<span class="inline-flex rounded-full bg-white/75 px-3 py-1 text-xs font-black text-emerald-700"${title}>${paymentLabel}</span>`;
             }
             if (normalizedStatus === 'annule') {
-                const suffix = cancelledByName ? `<span class="block text-[10px] font-semibold text-[var(--muted)]">par ${cancelledByName}</span>` : '';
-                return `<span class="inline-flex flex-col rounded-full bg-white/75 px-3 py-2 text-xs font-black leading-tight text-rose-700">Annulé${suffix}</span>`;
+                const title = cancelledByName ? ` title="Par ${cancelledByName}"` : '';
+                return `<span class="inline-flex rounded-full bg-white/75 px-3 py-1 text-xs font-black text-rose-700"${title}>Annulé</span>`;
             }
             return `<span class="inline-flex rounded-full bg-white/75 px-3 py-1 text-xs font-black text-[var(--muted)]">${normalizedStatus || 'N/A'}</span>`;
         }
@@ -916,6 +907,234 @@
             return `${formatShortDate(checkIn)} à ${formatShortDate(checkOut)} (${nights})`;
         }
 
+        function formatDateTimeShort(dateStr) {
+            const raw = (dateStr || '').toString();
+            if (!raw || raw === 'N/A') return 'N/A';
+            const date = new Date(raw);
+            if (Number.isNaN(date.getTime())) return raw;
+            const datePart = date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
+            const timePart = date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+            return `${datePart} ${timePart}`;
+        }
+
+        function visitLabel(count) {
+            const visits = Number(count || 0);
+            if (visits <= 0) return 'Visite';
+            if (visits === 1) return '1re visite';
+            if (visits === 2) return '2e visite';
+            return `${visits}e visite`;
+        }
+
+        function paymentContextLabel(context) {
+            return (context || '').toString() === 'deposit' ? 'Acompte' : 'Paiement';
+        }
+
+        function paymentMethodLabel(payment) {
+            const method = (payment?.payment_method || '').toString().trim();
+            const operator = (payment?.payment_operator || '').toString().trim();
+            if (/^mobile\s*money$/i.test(method) && operator) {
+                return operator;
+            }
+            return method || operator || 'Paiement';
+        }
+
+        function paymentChip(payment) {
+            const amount = Number(payment.amount_received_ariary ?? payment.amount_ariary ?? 0);
+            const change = Number(payment.change_given_ariary || 0);
+            const by = actorText(payment.processed_by_name, payment.processed_by_role);
+            const method = paymentMethodLabel(payment) || 'N/A';
+            const context = paymentContextLabel(payment.payment_context);
+            const changeText = change > 0 ? ` · rendu ${formatMoney(change)}` : '';
+            const actorTextLine = by !== 'N/A' ? ` · ${by}` : '';
+            return `<span class="inline-flex flex-wrap items-center gap-1 rounded-full border border-[rgba(68,52,39,0.10)] bg-white/80 px-3 py-1 text-[11px] font-bold text-[var(--ink)]">${context} ${formatMoney(amount)} · ${method}${changeText}${actorTextLine}</span>`;
+        }
+
+        function paymentSummaryLabel(res) {
+            const payments = Array.isArray(res.payments) ? res.payments : [];
+            if (payments.length === 1) {
+                const payment = payments[0];
+                const amount = Number(payment.amount_received_ariary ?? payment.amount_ariary ?? 0);
+                const context = paymentContextLabel(payment.payment_context);
+                return `${context} ${formatMoney(amount)}${payment.payment_context === 'deposit' ? '' : ` · ${paymentMethodLabel(payment)}`}`;
+            }
+            if (payments.length > 1) {
+                return `${payments.length} paiements`;
+            }
+            const status = (res.payment_status || '').toString();
+            if (status === 'paid') return 'Payé';
+            if (status === 'partial') return 'Partiel';
+            if (status === 'unpaid') return 'En attente';
+            return 'N/A';
+        }
+
+        function shortDetailButton(label, targetId) {
+            return `<button type="button" class="inline-flex items-center justify-center rounded-full border border-[rgba(68,52,39,0.10)] bg-white/75 px-3 py-1 text-[11px] font-black text-[var(--accent)] transition hover:bg-white" onclick="document.getElementById('${targetId}')?.classList.toggle('hidden')">${label}</button>`;
+        }
+
+        function clientDetailBlock(res) {
+            const guest = res.guest;
+            const known = Boolean(guest && ((res.check_in_at && res.check_in_at !== 'N/A') || (res.status || '') !== 'en_attente'));
+            if (!known) {
+                return '';
+            }
+
+            const detailId = `client-detail-${res.id || res.reference || Math.random().toString(36).slice(2)}`;
+            const lines = [];
+            if (guest?.id_type) lines.push(`<div><span class="font-black text-[var(--ink)]">Pièce :</span> ${guest.id_type}</div>`);
+            if (guest?.id_number || guest?.id_document_number) lines.push(`<div><span class="font-black text-[var(--ink)]">N° :</span> ${guest.id_number || guest.id_document_number}</div>`);
+            if (guest?.date_of_birth) lines.push(`<div><span class="font-black text-[var(--ink)]">Né(e) :</span> ${formatShortDate(guest.date_of_birth)}</div>`);
+            if (guest?.sex) lines.push(`<div><span class="font-black text-[var(--ink)]">Sexe :</span> ${guest.sex}</div>`);
+            if (guest?.phone_number) lines.push(`<div><span class="font-black text-[var(--ink)]">Téléphone :</span> ${guest.phone_number}</div>`);
+            if (guest?.loyalty_count) lines.push(`<div><span class="font-black text-[var(--ink)]">Séjours connus :</span> ${guest.loyalty_count}</div>`);
+
+            return `
+                <div class="mt-2">
+                    ${shortDetailButton('Détails', detailId)}
+                    <div id="${detailId}" class="hidden mt-2 rounded-2xl bg-white/65 p-3 text-[11px] text-[var(--muted)]">
+                        ${lines.join('') || '<div>Aucune information pièce d’identité.</div>'}
+                    </div>
+                </div>
+            `;
+        }
+
+        function reservationDetailBlock(res) {
+            const detailId = `reservation-detail-${res.id || res.reference || Math.random().toString(36).slice(2)}`;
+            const reservationTime = formatDateTimeShort(res.created_at);
+            const reservationBy = actorText(res.receptionist);
+            const modificationLine = res.modified_by && res.modified_by !== 'N/A'
+                ? `<div><span class="font-black text-[var(--ink)]">Modif. :</span> ${formatDateTimeShort(res.modified_at)} · ${res.modified_by}${res.modified_by_role ? ` / ${res.modified_by_role}` : ''}</div>`
+                : '';
+            const cancellationLine = (res.status || '').toString() === 'annule'
+                ? `<div><span class="font-black text-[var(--ink)]">Annulée :</span> ${formatDateTimeShort(res.cancelled_at)} · ${res.cancelled_by_name || 'N/A'}${res.cancelled_by_role ? ` / ${res.cancelled_by_role}` : ''}</div>`
+                : '';
+
+            return `
+                <div class="mt-2">
+                    ${shortDetailButton('Détails', detailId)}
+                    <div id="${detailId}" class="hidden mt-2 rounded-2xl bg-white/65 p-3 text-[11px] text-[var(--muted)]">
+                        <div><span class="font-black text-[var(--ink)]">Pris le :</span> ${reservationTime}</div>
+                        <div><span class="font-black text-[var(--ink)]">Pris par :</span> ${reservationBy}</div>
+                        ${modificationLine}
+                        ${cancellationLine}
+                    </div>
+                </div>
+            `;
+        }
+
+        function cancellationDetailBlock(res) {
+            if ((res.status || '').toString() !== 'annule') {
+                return '';
+            }
+
+            const detailId = `cancel-detail-${res.id || res.reference || Math.random().toString(36).slice(2)}`;
+            return `
+                <div class="mt-2">
+                    ${shortDetailButton('Annul.', detailId)}
+                    <div id="${detailId}" class="hidden mt-2 rounded-2xl bg-white/65 p-3 text-[11px] text-[var(--muted)]">
+                        <div><span class="font-black text-[var(--ink)]">Par :</span> ${res.cancelled_by_name || 'N/A'}${res.cancelled_by_role ? ` / ${res.cancelled_by_role}` : ''}</div>
+                        <div><span class="font-black text-[var(--ink)]">Le :</span> ${formatDateTimeShort(res.cancelled_at)}</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function checkInCompactBlock(res) {
+            const status = (res.status || '').toString();
+            if (status === 'en_attente') {
+                return `
+                    <div class="flex flex-col gap-2">
+                        <span class="inline-flex rounded-full bg-white/75 px-3 py-1 text-xs font-black text-sky-700">En attente</span>
+                    </div>
+                `;
+            }
+
+            if (status === 'annule') {
+                return `
+                    <div class="flex flex-col gap-2">
+                        <span class="inline-flex rounded-full bg-white/75 px-3 py-1 text-xs font-black text-rose-700">Annulé</span>
+                        ${cancellationDetailBlock(res)}
+                    </div>
+                `;
+            }
+
+            const detailId = `checkin-detail-${res.id || res.reference || Math.random().toString(36).slice(2)}`;
+            const checkInBy = actorText(res.check_in_by, res.check_in_role);
+            const checkInTime = formatDateTimeShort(res.check_in_at);
+            return `
+                <div class="flex flex-col gap-2">
+                    <span class="inline-flex rounded-full bg-white/75 px-3 py-1 text-xs font-black text-emerald-700">Effectué</span>
+                    ${shortDetailButton('Détails', detailId)}
+                    <div id="${detailId}" class="hidden rounded-2xl bg-white/65 p-3 text-[11px] text-[var(--muted)]">
+                        <div><span class="font-black text-[var(--ink)]">Par :</span> ${checkInBy}</div>
+                        <div><span class="font-black text-[var(--ink)]">Le :</span> ${checkInTime}</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function paymentDetailBlock(res) {
+            const payments = Array.isArray(res.payments) ? res.payments : [];
+            const detailId = `payment-detail-${res.id || res.reference || Math.random().toString(36).slice(2)}`;
+            const summary = paymentSummaryLabel(res);
+            if (payments.length === 0) {
+                return `<span class="inline-flex rounded-full bg-white/75 px-3 py-1 text-xs font-black text-[var(--muted)]">${summary}</span>`;
+            }
+
+            const rows = payments.map((payment) => {
+                const amount = Number(payment.amount_received_ariary ?? payment.amount_ariary ?? 0);
+                const ref = payment.reference || 'N/A';
+                const by = actorText(payment.processed_by_name, payment.processed_by_role);
+                const context = paymentContextLabel(payment.payment_context);
+                const method = paymentMethodLabel(payment);
+                return `<div class="rounded-2xl bg-white/75 px-3 py-2">
+                    <div class="font-black text-[var(--ink)]">${context} ${formatMoney(amount)}</div>
+                    <div class="text-[11px]">Type : ${method}</div>
+                    <div class="text-[11px]">Réf. : ${ref}</div>
+                    <div class="text-[11px]">Pris par : ${by}</div>
+                </div>`;
+            }).join('');
+
+            return `
+                <details class="group flex flex-col gap-2">
+                    <summary class="cursor-pointer list-none rounded-full bg-white/75 px-3 py-1 text-xs font-black text-[var(--ink)]">
+                        ${summary} · Détails
+                    </summary>
+                    <div id="${detailId}" class="mt-2 space-y-2 rounded-2xl bg-white/65 p-3 text-[11px] text-[var(--muted)]">
+                        ${rows}
+                    </div>
+                </details>
+            `;
+        }
+
+        function modificationDetailBlock(res) {
+            const hasModification = res.modified_by && res.modified_by !== 'N/A';
+            if (!hasModification) {
+                return '';
+            }
+            const detailId = `modif-detail-${res.id || res.reference || Math.random().toString(36).slice(2)}`;
+            return `
+                <div class="mt-2">
+                    ${shortDetailButton('Modif.', detailId)}
+                    <div id="${detailId}" class="hidden mt-2 rounded-2xl bg-white/65 p-3 text-[11px] text-[var(--muted)]">
+                        <div><span class="font-black text-[var(--ink)]">Par :</span> ${res.modified_by}${res.modified_by_role ? ` / ${res.modified_by_role}` : ''}</div>
+                        <div><span class="font-black text-[var(--ink)]">Le :</span> ${formatDateTimeShort(res.modified_at)}</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function clientHistoryDetails(res) {
+            return `
+                <div class="mt-2 flex flex-wrap gap-2">
+                    ${reservationDetailBlock(res)}
+                    ${checkInCompactBlock(res)}
+                    ${paymentDetailBlock(res)}
+                    ${modificationDetailBlock(res)}
+                    ${clientDetailBlock(res)}
+                </div>
+            `;
+        }
+
         function actorText(name, role = null) {
             const normalizedName = (name || '').toString().trim();
             const normalizedRole = (role || '').toString().trim();
@@ -936,54 +1155,24 @@
 
         function checkInBadge(res) {
             const status = (res.status || '').toString();
-            const checkInActor = actorText(res.check_in_by, res.check_in_role);
-            const modifiedBy = actorText(res.modified_by, res.modified_by_role);
-
             if (status === 'en_attente') {
-                const modifiedLine = modifiedBy !== 'N/A'
-                    ? `<button type="button" class="text-left text-[10px] font-semibold text-[var(--accent)] hover:underline" onclick="openReservationAuditModal('${res.reference || ''}')">Modifié par ${modifiedBy}</button>`
-                    : '';
-                return `
-                    <div class="flex flex-col gap-1">
-                        ${infoPill('En attente')}
-                        <span class="text-[10px] font-semibold text-[var(--muted)]">Effectué par : ${checkInActor}</span>
-                        ${modifiedLine}
-                    </div>
-                `;
+                return '<span class="inline-flex rounded-full bg-white/75 px-3 py-1 text-xs font-black text-sky-700">En attente</span>';
             }
 
             if (status === 'annule') {
-                return `
-                    <div class="flex flex-col gap-1">
-                        ${infoPill('Annulé', true)}
-                        <span class="text-[10px] font-semibold text-[var(--muted)]">Par : ${actorText(res.cancelled_by_name)}</span>
-                    </div>
-                `;
+                return '<span class="inline-flex rounded-full bg-white/75 px-3 py-1 text-xs font-black text-rose-700">Annulé</span>';
             }
 
-            const modifiedLine = modifiedBy !== 'N/A'
-                ? `<button type="button" class="text-left text-[10px] font-semibold text-[var(--accent)] hover:underline" onclick="openReservationAuditModal('${res.reference || ''}')">Modifié par ${modifiedBy}</button>`
-                : '<span class="text-[10px] font-semibold text-[var(--muted)]">Modifié par : N/A</span>';
-
-            return `
-                <div class="flex flex-col gap-1">
-                    ${infoPill(`Effectué par ${checkInActor}`)}
-                    ${modifiedLine}
-                </div>
-            `;
+            return '<span class="inline-flex rounded-full bg-white/75 px-3 py-1 text-xs font-black text-emerald-700">Payé</span>';
         }
 
         function paymentBadgeDetailed(res) {
             const methods = (res.payment_methods_display || '').toString().trim();
             const paid = Number(res.paid_amount_ariary || 0);
             const status = (res.payment_status || '').toString();
-            const actor = actorText(res.latest_payment_processed_by, res.latest_payment_processed_by_role);
-            const operator = (res.latest_payment_operator || '').toString().trim();
-            const methodLine = operator && (res.latest_payment_method || '').toString() === 'Mobile Money'
-                ? `${methods || res.latest_payment_method || 'N/A'} / ${operator}`
-                : (methods || res.latest_payment_method || 'N/A');
+            const methodLine = methods || (res.latest_payment_method || '').toString() || 'N/A';
 
-            if (!methodLine && actor === 'N/A' && !paid) {
+            if (methodLine === 'N/A' && !paid) {
                 return infoPill('N/A');
             }
 
@@ -994,28 +1183,24 @@
             return `
                 <div class="flex flex-col gap-1">
                     <span class="font-black text-[var(--ink)]">${methodLine}</span>
-                    <span class="text-[11px] font-semibold text-[var(--muted)]">${statusLabel} · ${formatMoney(paid)}${actor !== 'N/A' ? ` · ${actor}` : ''}</span>
+                    <span class="text-[11px] font-semibold text-[var(--muted)]">${statusLabel} · ${formatMoney(paid)}</span>
                 </div>
             `;
         }
 
         function depositBadgeDetailed(res) {
             const methods = (res.latest_deposit_method || '').toString().trim();
-            const actor = actorText(res.latest_deposit_processed_by, res.latest_deposit_processed_by_role);
-            const operator = (res.latest_deposit_operator || '').toString().trim();
             const depositAmount = Number(res.deposit_amount_ariary || 0);
-            const methodLine = operator && methods === 'Mobile Money'
-                ? `${methods} / ${operator}`
-                : (methods || 'N/A');
+            const methodLine = methods || 'N/A';
 
-            if (!methods && actor === 'N/A' && !depositAmount) {
+            if (methodLine === 'N/A' && !depositAmount) {
                 return infoPill('N/A');
             }
 
             return `
                 <div class="flex flex-col gap-1">
                     <span class="font-black text-[var(--ink)]">${methodLine}</span>
-                    <span class="text-[11px] font-semibold text-[var(--muted)]">Acompte ${formatMoney(depositAmount)}${actor !== 'N/A' ? ` · ${actor}` : ''}</span>
+                    <span class="text-[11px] font-semibold text-[var(--muted)]">Acompte ${formatMoney(depositAmount)}</span>
                 </div>
             `;
         }
@@ -1096,7 +1281,7 @@
             const invoiceStatus = (res.invoice_status || '').toString();
             const paymentStatus = (res.payment_status || '').toString();
             if (!res.invoice_number) {
-                return '<span class="inline-flex rounded-full bg-white/75 px-3 py-1 text-xs font-black text-[var(--muted)]">Non générée</span>';
+                return '<span class="inline-flex rounded-full bg-white/75 px-3 py-1 text-xs font-black text-[var(--muted)]">N/A</span>';
             }
 
             const label = invoiceStatus === 'paid' || paymentStatus === 'paid'
@@ -1142,21 +1327,53 @@
             `;
         }
 
-        function searchClientHistory(silent = false) {
+        function clearClientHistoryView(message = 'Aucun historique affiché. Recherche un client ou clique sur Tout.') {
+            const summary = document.getElementById('client-history-summary');
+            const tableBody = document.getElementById('client-history-table-body');
+            if (summary) {
+                summary.textContent = message;
+            }
+            if (tableBody) {
+                tableBody.innerHTML = '';
+            }
+        }
+
+        function loadAllClientHistory() {
+            if (clientHistoryMode === 'all' && clientHistoryData.length > 0) {
+                clientHistoryMode = 'idle';
+                clientHistoryQuery = '';
+                clientHistoryData = [];
+                clearClientHistoryView('Aucun historique affiché. Recherche un client ou clique sur Tout.');
+                return;
+            }
+
+            searchClientHistory(false, 'all');
+        }
+
+        function searchClientHistory(silent = false, mode = 'search') {
             const query = document.getElementById('client-history-query')?.value?.trim() || '';
             const summary = document.getElementById('client-history-summary');
             const tableBody = document.getElementById('client-history-table-body');
 
-            if (summary && !silent) {
-                summary.textContent = query.length >= 2
-                    ? 'Recherche en cours...'
-                    : 'Chargement des réservations récentes...';
+            clientHistoryMode = mode;
+            clientHistoryQuery = query;
+
+            if (mode === 'search' && query.length < 2) {
+                clearClientHistoryView('Tape au moins 2 lettres puis recherche, ou clique sur Tout.');
+                clientHistoryData = [];
+                return;
             }
 
-            const cacheKey = cacheKeyFor('/api/dashboard/client-history', query.length >= 2 ? query.toLowerCase() : 'recent');
-            const url = query.length >= 2
-                ? `/api/dashboard/client-history?q=${encodeURIComponent(query)}`
-                : '/api/dashboard/client-history';
+            if (summary && !silent) {
+                summary.textContent = mode === 'all'
+                    ? 'Chargement de tout l’historique...'
+                    : 'Recherche en cours...';
+            }
+
+            const cacheKey = cacheKeyFor('/api/dashboard/client-history', `${mode}:${mode === 'all' ? 'all' : query.toLowerCase()}`);
+            const url = mode === 'all'
+                ? '/api/dashboard/client-history?mode=all'
+                : `/api/dashboard/client-history?q=${encodeURIComponent(query)}`;
 
             safeFetchJson(url, cacheKey, {
                 timeoutMs: 4500,
@@ -1174,7 +1391,7 @@
                     }
 
                     clientHistoryData = data.data || [];
-                    renderClientHistoryTable(query, clientHistoryData);
+                    renderClientHistoryTable(mode === 'all' ? 'tout l’historique' : query, clientHistoryData);
                     if (fromCache && summary) {
                         summary.textContent += ' Données locales affichées.';
                     }
@@ -1204,8 +1421,7 @@
                     : 1;
             }
 
-            const query = document.getElementById('client-history-query')?.value?.trim() || '';
-            renderClientHistoryTable(query, clientHistoryData);
+            renderClientHistoryTable(clientHistoryMode === 'all' ? 'tout l’historique' : (clientHistoryQuery || ''), clientHistoryData);
         }
 
         function renderClientHistoryTable(query, rows) {
@@ -1219,33 +1435,42 @@
 
             if (!rows || rows.length === 0) {
                 summary.textContent = `Aucune réservation trouvée pour "${query}".`;
-                tableBody.innerHTML = '<tr><td colspan="13" class="px-5 py-8 text-center text-[var(--muted)]">Aucun historique disponible.</td></tr>';
+                tableBody.innerHTML = '<tr><td colspan="10" class="px-5 py-8 text-center text-[var(--muted)]">Aucun historique disponible.</td></tr>';
                 return;
             }
 
-            summary.textContent = `${rows.length} réservation(s) trouvée(s) pour "${query}". Tri : ${clientHistorySortLabel(clientHistorySortKey)} (${clientHistorySortDirection === 1 ? 'croissant' : 'décroissant'}).`;
+            summary.textContent = `${rows.length} réservation(s) pour "${query}". Tri : ${clientHistorySortLabel(clientHistorySortKey)} (${clientHistorySortDirection === 1 ? 'croissant' : 'décroissant'}).`;
 
             const sortedRows = sortRows([...rows], clientHistorySortKey, clientHistorySortDirection);
 
             sortedRows.forEach(res => {
                 const row = document.createElement('tr');
                 row.innerHTML = `
-                    <td data-label="Période" class="px-5 py-4">${periodBadge(res.period)}</td>
-                    <td data-label="Référence" class="px-5 py-4 font-mono text-xs font-black text-[var(--accent)]">${res.reference || 'N/A'}</td>
-                    <td data-label="Client" class="px-5 py-4 font-bold text-[var(--ink)]">${res.client_name || 'N/A'}</td>
-                    <td data-label="Contact" class="px-5 py-4 text-xs">${res.contact || 'N/A'}</td>
+                    <td data-label="Réf." class="px-5 py-4">
+                        <div class="font-mono text-xs font-black text-[var(--accent)]">${res.reference || 'N/A'}</div>
+                        ${reservationDetailBlock(res)}
+                    </td>
+                    <td data-label="Client" class="px-5 py-4">
+                        <div class="font-bold text-[var(--ink)]">${res.client_name || 'N/A'}</div>
+                        <div class="mt-1 text-[11px] text-[var(--muted)]">${res.contact || 'N/A'}</div>
+                        <div class="mt-2 inline-flex rounded-full bg-white/75 px-3 py-1 text-[11px] font-black text-[var(--accent)]">${visitLabel(res.visit_count)}</div>
+                        ${clientDetailBlock(res)}
+                    </td>
                     <td data-label="Chambre(s)" class="px-5 py-4 text-xs">
                         <div class="font-mono font-black text-[var(--ink)]">${res.room_numbers || 'N/A'}</div>
                         <div class="mt-1 font-semibold text-[var(--muted)]">${res.rooms || 'N/A'}</div>
                     </td>
                     <td data-label="Séjour" class="px-5 py-4 text-xs">${formatStayRange(res.check_in_date || res.check_in, res.check_out_date || res.check_out)}</td>
-                    <td data-label="Pris par" class="px-5 py-4 text-xs">${actorText(res.receptionist)}</td>
-                    <td data-label="Check-in" class="px-5 py-4 text-xs">${checkInBadge(res)}</td>
+                    <td data-label="Check-in" class="px-5 py-4 text-xs">${checkInCompactBlock(res)}</td>
                     <td data-label="Facture" class="px-5 py-4 text-xs">${invoiceBadge(res)}</td>
-                    <td data-label="Paiement" class="px-5 py-4 text-xs">${paymentBadgeDetailed(res)}</td>
-                    <td data-label="Acompte" class="px-5 py-4 text-xs">${depositBadgeDetailed(res)}</td>
+                    <td data-label="Paiement" class="px-5 py-4 text-xs">${paymentDetailBlock(res)}</td>
                     <td data-label="Total" class="px-5 py-4 text-xs font-bold text-[var(--muted)]">${formatMoney(res.fixed_total_price || 0)}</td>
-                    <td data-label="Reste à payer" class="px-5 py-4 text-xs font-black text-[var(--ink)]">${formatMoney(res.balance_amount_ariary || 0)}</td>
+                    <td data-label="Reste" class="px-5 py-4 text-xs font-black text-[var(--ink)]">
+                        <div>${formatMoney(res.balance_amount_ariary || 0)}</div>
+                    </td>
+                    <td data-label="Période" class="px-5 py-4 text-xs">
+                        ${periodBadge(res.period)}
+                    </td>
                 `;
                 tableBody.appendChild(row);
             });
@@ -1256,27 +1481,35 @@
             tableBody.innerHTML = '';
 
             if (data.length === 0) {
-                tableBody.innerHTML = '<tr><td colspan="11" class="px-5 py-8 text-center text-[var(--muted)]">Aucune réservation active pour cette date.</td></tr>';
+                tableBody.innerHTML = '<tr><td colspan="9" class="px-5 py-8 text-center text-[var(--muted)]">Aucune réservation active pour cette date.</td></tr>';
                 return;
             }
 
             data.forEach(res => {
                 const row = document.createElement('tr');
                 row.innerHTML = `
-                    <td data-label="Référence" class="px-5 py-4 font-mono text-xs font-black text-[var(--accent)]">${res.reference}</td>
-                    <td data-label="Client" class="px-5 py-4 font-bold text-[var(--ink)]">${res.client_name}</td>
-                    <td data-label="Contact" class="px-5 py-4 text-xs">${res.contact}</td>
+                    <td data-label="Réf." class="px-5 py-4">
+                        <div class="font-mono text-xs font-black text-[var(--accent)]">${res.reference}</div>
+                        ${reservationDetailBlock(res)}
+                    </td>
+                    <td data-label="Client" class="px-5 py-4">
+                        <div class="font-bold text-[var(--ink)]">${res.client_name}</div>
+                        <div class="mt-1 text-[11px] text-[var(--muted)]">${res.contact || 'N/A'}</div>
+                        <div class="mt-2 inline-flex rounded-full bg-white/75 px-3 py-1 text-[11px] font-black text-[var(--accent)]">${visitLabel(res.visit_count)}</div>
+                        ${clientDetailBlock(res)}
+                    </td>
                     <td data-label="Chambre(s)" class="px-5 py-4 text-xs">
                         <div class="font-mono font-black text-[var(--ink)]">${res.room_numbers || 'N/A'}</div>
                         <div class="mt-1 font-semibold text-[var(--muted)]">${res.rooms || 'N/A'}</div>
                     </td>
                     <td data-label="Séjour" class="px-5 py-4 text-xs">${formatStayRange(res.check_in, res.check_out)}</td>
-                    <td data-label="Pris par" class="px-5 py-4 text-xs">${actorText(res.receptionist)}</td>
-                    <td data-label="Check-in" class="px-5 py-4 text-xs">${checkInBadge(res)}</td>
-                    <td data-label="Paiement" class="px-5 py-4 text-xs">${paymentBadgeDetailed(res)}</td>
-                    <td data-label="Acompte" class="px-5 py-4 text-xs">${depositBadgeDetailed(res)}</td>
+                    <td data-label="Check-in" class="px-5 py-4 text-xs">${checkInCompactBlock(res)}</td>
+                    <td data-label="Facture" class="px-5 py-4 text-xs">${invoiceBadge(res)}</td>
+                    <td data-label="Paiement" class="px-5 py-4 text-xs">${paymentDetailBlock(res)}</td>
                     <td data-label="Total" class="px-5 py-4 font-bold text-[var(--muted)]">${formatMoney(res.fixed_total_price)}</td>
-                    <td data-label="Reste à payer" class="px-5 py-4 font-black text-[var(--ink)]">${formatMoney(res.balance_amount_ariary)}</td>
+                    <td data-label="Reste" class="px-5 py-4 font-black text-[var(--ink)]">
+                        <div>${formatMoney(res.balance_amount_ariary)}</div>
+                    </td>
                 `;
                 tableBody.appendChild(row);
             });
@@ -1329,7 +1562,7 @@
                     <td data-label="Date" class="px-5 py-4 font-mono text-xs font-black text-[var(--accent)]">${rowData.date}</td>
                     <td data-label="Chambres" class="px-5 py-4 font-bold text-[var(--ink)]">${rowData.room_count}</td>
                     <td data-label="CA prix fixe" class="px-5 py-4 font-semibold text-[var(--muted)]">${formatMoney(rowData.fixed_revenue_ariary)}</td>
-                    <td data-label="CA IA simulé" class="px-5 py-4 font-black text-[var(--ink)]">${formatMoney(rowData.ai_revenue_ariary)}</td>
+                    <td data-label="CA IA" class="px-5 py-4 font-black text-[var(--ink)]">${formatMoney(rowData.ai_revenue_ariary)}</td>
                     <td data-label="Gain / perte" class="px-5 py-4 font-black ${deltaClass}">${delta > 0 ? '+' : ''}${formatMoney(delta)}</td>
                 `;
                 tableBody.appendChild(row);
@@ -1348,22 +1581,35 @@
                     document.getElementById('stat-ca-official').innerText = formatMoney(data.daily_ca_official);
                     document.getElementById('stat-ca-pending').innerText = formatMoney(data.daily_ca_pending);
                     document.getElementById('stat-ca-total').innerText = formatMoney(data.total_ca);
-                    document.getElementById('stat-rooms-confirmed').innerText = data.rooms_confirmed || 0;
-                    document.getElementById('stat-rooms-estimated').innerText = data.rooms_estimated || 0;
+                    const roomsConfirmed = data.rooms_confirmed || 0;
+                    const roomsPending = Math.max(0, (data.rooms_estimated || 0) - roomsConfirmed);
+                    document.getElementById('stat-rooms-confirmed').innerText = roomsConfirmed;
+                    const roomsPendingEl = document.getElementById('stat-rooms-pending');
+                    if (roomsPendingEl) {
+                        roomsPendingEl.innerText = roomsPending;
+                    }
                     document.getElementById('ca-period').innerText = data.period;
 
                     document.getElementById('finance-total-official').innerText = formatMoney(data.daily_ca_official);
                     document.getElementById('finance-total-pending').innerText = formatMoney(data.daily_ca_pending);
 
                     const totalRooms = 37;
-                    const roomsConfirmed = data.rooms_confirmed || 0;
                     const occRate = (roomsConfirmed / totalRooms) * 100;
                     const adr = roomsConfirmed > 0 ? (data.daily_ca_official / roomsConfirmed) : 0;
                     const revpar = data.daily_ca_official / totalRooms;
 
-                    document.getElementById('finance-occ-rate').innerText = `${occRate.toFixed(1)}%`;
-                    document.getElementById('finance-adr').innerText = formatMoney(adr);
-                    document.getElementById('finance-revpar').innerText = formatMoney(revpar);
+                    const financeOccRate = document.getElementById('finance-occ-rate');
+                    if (financeOccRate) {
+                        financeOccRate.innerText = `${occRate.toFixed(1)}%`;
+                    }
+                    const financeAdr = document.getElementById('finance-adr');
+                    if (financeAdr) {
+                        financeAdr.innerText = formatMoney(adr);
+                    }
+                    const financeRevpar = document.getElementById('finance-revpar');
+                    if (financeRevpar) {
+                        financeRevpar.innerText = formatMoney(revpar);
+                    }
                     updateFinanceChart(data);
                 })
                 .catch(() => {
@@ -1372,8 +1618,13 @@
                     document.getElementById('stat-ca-official').innerText = formatMoney(cached.daily_ca_official);
                     document.getElementById('stat-ca-pending').innerText = formatMoney(cached.daily_ca_pending);
                     document.getElementById('stat-ca-total').innerText = formatMoney(cached.total_ca);
-                    document.getElementById('stat-rooms-confirmed').innerText = cached.rooms_confirmed || 0;
-                    document.getElementById('stat-rooms-estimated').innerText = cached.rooms_estimated || 0;
+                    const cachedConfirmed = cached.rooms_confirmed || 0;
+                    const cachedPending = Math.max(0, (cached.rooms_estimated || 0) - cachedConfirmed);
+                    document.getElementById('stat-rooms-confirmed').innerText = cachedConfirmed;
+                    const cachedPendingEl = document.getElementById('stat-rooms-pending');
+                    if (cachedPendingEl) {
+                        cachedPendingEl.innerText = cachedPending;
+                    }
                     document.getElementById('ca-period').innerText = cached.period;
                 });
         }
@@ -1442,18 +1693,43 @@
             });
         }
 
-        function forceLogoutOnLeave() {
-            const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
-            if (!token) return;
-            const payload = new FormData();
-            payload.append('_token', token);
-            navigator.sendBeacon('{{ route('dashboard.logout') }}', payload);
+        function ensureDashboardTabSession() {
+            if (sessionStorage.getItem(kamoroDashboardSessionKey)) {
+                return true;
+            }
+
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+            if (csrfToken) {
+                const payload = new FormData();
+                payload.append('_token', csrfToken);
+                try {
+                    navigator.sendBeacon(kamoroDashboardLogoutUrl, payload);
+                } catch (_) {
+                    fetch(kamoroDashboardLogoutUrl, {
+                        method: 'POST',
+                        headers: { 'X-CSRF-TOKEN': csrfToken },
+                        credentials: 'same-origin',
+                        keepalive: true,
+                    }).catch(() => {});
+                }
+            }
+
+            window.location.replace(kamoroDashboardLoginUrl);
+            return false;
         }
 
         document.addEventListener('DOMContentLoaded', function() {
+            if (!ensureDashboardTabSession()) {
+                return;
+            }
+
             const now = new Date();
             const today = now.toISOString().substring(0, 10);
             document.getElementById('global-date').value = today;
+
+            document.querySelector(`form[action="${kamoroDashboardLogoutUrl}"]`)?.addEventListener('submit', () => {
+                sessionStorage.removeItem(kamoroDashboardSessionKey);
+            });
 
             document.getElementById('settings-trigger').addEventListener('click', function(event) {
                 event.stopPropagation();
@@ -1470,9 +1746,6 @@
 
             refreshAll();
         });
-
-        window.addEventListener('pagehide', forceLogoutOnLeave);
-        window.addEventListener('beforeunload', forceLogoutOnLeave);
     </script>
 </body>
 </html>

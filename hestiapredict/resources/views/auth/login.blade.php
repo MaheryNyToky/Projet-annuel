@@ -71,7 +71,7 @@
                         </div>
                     @endif
 
-                    <form method="POST" action="{{ route('dashboard.login.submit') }}" class="mt-6 space-y-4">
+                    <form method="POST" action="{{ route('dashboard.login.submit') }}" id="login-form" class="mt-6 space-y-4">
                         @csrf
                         <div>
                             <label for="email" class="mb-2 block text-sm font-bold text-[var(--ink)]">Email</label>
@@ -89,5 +89,11 @@
             </section>
         </div>
     </main>
+    <script>
+        const kamoroDashboardSessionKey = 'kamoro_dashboard_tab_active';
+        document.getElementById('login-form')?.addEventListener('submit', () => {
+            sessionStorage.setItem(kamoroDashboardSessionKey, String(Date.now()));
+        });
+    </script>
 </body>
 </html>

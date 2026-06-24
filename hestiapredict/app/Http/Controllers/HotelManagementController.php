@@ -282,20 +282,24 @@ class HotelManagementController extends Controller
     {
         $validated = $request->validate([
             'q' => 'nullable|string|max:120',
+            'mode' => 'nullable|string|in:search,all',
         ]);
 
         $term = trim((string) ($validated['q'] ?? ''));
+        $mode = $validated['mode'] ?? 'search';
         $normalizedPhone = PhoneNumber::normalize($term);
         $normalizedTerm = Str::lower(Str::ascii($normalizedPhone ?? $term));
         $today = now()->startOfDay();
 
-        $cacheSuffix = $normalizedTerm !== '' ? $normalizedTerm : 'recent';
+        $cacheSuffix = $mode === 'all'
+            ? 'all'
+            : ($normalizedTerm !== '' ? $normalizedTerm : 'empty');
         $cacheKey = 'dashboard:client-history:' . $this->availabilityService->getCacheVersion() . ':' . $cacheSuffix;
-        $reservations = Cache::remember($cacheKey, now()->addMinutes(1), function () use ($normalizedTerm, $today, $term) {
+        $reservations = Cache::remember($cacheKey, now()->addMinutes(1), function () use ($normalizedTerm, $today, $term, $mode) {
             $query = Reservation::query()
                 ->with(['rooms', 'user', 'guest', 'invoice.payments', 'latestAudit', 'latestCheckInAudit', 'latestModificationAudit']);
 
-            if ($term !== '') {
+            if ($mode !== 'all' && $term !== '') {
                 $query->where(function ($query) use ($normalizedTerm) {
                     $like = '%' . $normalizedTerm . '%';
 
@@ -345,11 +349,55 @@ class HotelManagementController extends Controller
                 ->all();
         });
 
+        $visitCounts = collect($reservations)
+            ->filter(function (array $reservation) {
+                $status = (string) ($reservation['status'] ?? '');
+                $paymentStatus = (string) ($reservation['payment_status'] ?? '');
+                $invoiceStatus = (string) ($reservation['invoice_status'] ?? '');
+                $balance = (int) ($reservation['balance_amount_ariary'] ?? 0);
+
+                return $status !== 'annule'
+                    && (
+                        $paymentStatus === 'paid'
+                        || $invoiceStatus === 'paid'
+                        || $balance <= 0
+                    );
+            })
+            ->map(function (array $reservation) {
+                return $this->clientHistorySignature($reservation);
+            })
+            ->countBy();
+
+        $reservations = collect($reservations)
+            ->map(function (array $reservation) use ($visitCounts) {
+                $signature = $this->clientHistorySignature($reservation);
+
+                return [
+                    ...$reservation,
+                    'visit_count' => (int) ($visitCounts[$signature] ?? 0),
+                ];
+            })
+            ->values()
+            ->all();
+
         return response()->json([
             'status' => 'success',
             'query' => $term,
+            'mode' => $mode,
             'data' => $reservations,
         ]);
+    }
+
+    private function clientHistorySignature(array $reservation): string
+    {
+        $parts = [
+            Str::lower(Str::ascii(trim((string) ($reservation['phone'] ?? '')))),
+            Str::lower(Str::ascii(trim((string) ($reservation['email'] ?? '')))),
+            Str::lower(Str::ascii(trim((string) ($reservation['client_name'] ?? '')))),
+        ];
+
+        $signature = implode('|', array_filter($parts, fn ($part) => $part !== ''));
+        return $signature !== '' ? $signature : 'unknown:' . (string) ($reservation['reference'] ?? '');
     }
 
     public function getUsers(): JsonResponse
