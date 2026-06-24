@@ -143,28 +143,34 @@ class _EditReservationPageState extends State<EditReservationPage> {
   }
 
   int _stayNights() {
-    final nights = _checkOut.difference(_checkIn).inDays;
+    final start = DateTime(_checkIn.year, _checkIn.month, _checkIn.day);
+    final end = DateTime(_checkOut.year, _checkOut.month, _checkOut.day);
+    final nights = end.difference(start).inDays;
     return nights < 1 ? 1 : nights;
   }
 
-  int _calculateRoomPrice() {
-    final nights = _stayNights();
+  int _calculateRoomNightPrice() {
     return _selectedRooms.fold<int>(
       0,
-      (total, room) => total + _getRoomPrice(room) * nights,
+      (total, room) => total + _getRoomPrice(room),
     );
   }
 
+  int _calculateRoomPrice() {
+    return _calculateRoomNightPrice() * _stayNights();
+  }
+
+  int _calculateExtrasNightPrice() {
+    return (_extraBeds * 50000) + (_extraMattresses * 30000);
+  }
+
   int _calculateExtrasPrice() {
-    final nights = _stayNights();
-    return ((_extraBeds * 50000) + (_extraMattresses * 30000)) * nights;
+    return _calculateExtrasNightPrice() * _stayNights();
   }
 
   int _calculateTotalPrice() {
     return _calculateRoomPrice() + _calculateExtrasPrice();
   }
-
-  String _nightLabel(int nights) => '$nights nuit${nights > 1 ? 's' : ''}';
 
   Set<String> _initialRoomNumbers() {
     final rawNumbers = widget.reservation['room_numbers'];
@@ -695,12 +701,22 @@ class _EditReservationPageState extends State<EditReservationPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         _SummaryLine(
-                          label: 'Prix chambre (${_nightLabel(_stayNights())})',
+                          label: 'Prix par nuit chambres',
+                          value: '${formatPrice(_calculateRoomNightPrice())} Ar',
+                        ),
+                        const SizedBox(height: 6),
+                        _SummaryLine(
+                          label: 'Prix total chambre',
                           value: '${formatPrice(_calculateRoomPrice())} Ar',
                         ),
                         const SizedBox(height: 6),
                         _SummaryLine(
-                          label: 'Prix supplément (${_nightLabel(_stayNights())})',
+                          label: 'Prix par nuit option',
+                          value: '${formatPrice(_calculateExtrasNightPrice())} Ar',
+                        ),
+                        const SizedBox(height: 6),
+                        _SummaryLine(
+                          label: 'Prix total option',
                           value: '${formatPrice(_calculateExtrasPrice())} Ar',
                         ),
                         const Divider(height: 20),
@@ -1534,7 +1550,7 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                                       tooltip:
                                           (res['status'] ?? '').toString() ==
                                               'arrive'
-                                          ? 'Folio'
+                                          ? 'Facture'
                                           : 'Acompte',
                                       onPressed: () => _openFolio(res),
                                       icon: Icon(
@@ -1993,32 +2009,13 @@ class _QuantitySelector extends StatelessWidget {
                   label,
                   style: const TextStyle(fontWeight: FontWeight.w800),
                 ),
-                if (stayNights > 1)
+                if (maxValue != null)
                   Text(
-                    'Montant pour $stayNights nuit${stayNights > 1 ? 's' : ''} : ${formatPrice(unitPrice * stayNights)} Ar',
-                    style: const TextStyle(
-                      color: _primaryDark,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                if (stayNights > 1)
-                  Text(
-                    '${formatPrice(unitPrice)} Ar / nuit',
+                    'Restant : $maxValue',
                     style: const TextStyle(
                       color: _muted,
                       fontSize: 12,
                     ),
-                  ),
-                if (stayNights <= 1)
-                  Text(
-                    '${formatPrice(unitPrice)} Ar',
-                    style: const TextStyle(color: _muted, fontSize: 12),
-                  ),
-                if (maxValue != null)
-                  Text(
-                    'Restant : $maxValue',
-                    style: const TextStyle(color: _muted, fontSize: 12),
                   ),
               ],
             ),

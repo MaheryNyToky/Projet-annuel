@@ -517,7 +517,7 @@ class BookingService
     public function reservationsForDate(?string $date, string $statusFilter = 'all'): Collection
     {
         return Reservation::query()
-            ->with(['rooms', 'user', 'invoice.payments', 'latestAudit', 'latestCheckInAudit', 'latestModificationAudit'])
+            ->with(['rooms', 'user', 'audits', 'invoice.payments', 'latestAudit', 'latestCheckInAudit', 'latestModificationAudit'])
             ->when($date && $date !== 'all', function ($query) use ($date) {
                 $query->where('check_in_date', '<=', $date)
                     ->where('check_out_date', '>=', $date);
@@ -548,7 +548,7 @@ class BookingService
     public function activeReservations(string $date): Collection
     {
         return Reservation::query()
-            ->with(['rooms', 'user', 'invoice.payments', 'latestAudit', 'latestCheckInAudit', 'latestModificationAudit'])
+            ->with(['rooms', 'user', 'audits', 'invoice.payments', 'latestAudit', 'latestCheckInAudit', 'latestModificationAudit'])
             ->where('check_in_date', '<=', $date)
             ->where('check_out_date', '>', $date)
             ->get()
@@ -659,6 +659,21 @@ class BookingService
                 : (((int) $invoice->paid_amount_ariary > 0) ? 'partial' : 'unpaid');
         }
 
+        $checkInAudit = $reservation->latestCheckInAudit
+            ?? ($reservation->relationLoaded('audits')
+                ? $reservation->audits
+                    ->where('action', 'check_in')
+                    ->sortByDesc('created_at')
+                    ->first()
+                : null);
+        $modificationAudit = $reservation->latestModificationAudit
+            ?? ($reservation->relationLoaded('audits')
+                ? $reservation->audits
+                    ->where('action', 'modified')
+                    ->sortByDesc('created_at')
+                    ->first()
+                : null);
+
         return [
             'id' => $reservation->id,
             'reference' => $reservation->booking_reference,
@@ -690,13 +705,13 @@ class BookingService
             'balance_amount_ariary' => (int) ($invoice?->balance_amount_ariary ?? 0),
             'is_booking' => $reservation->source === 'Booking',
             'receptionist' => $reservation->user?->name ?? 'N/A',
-            'check_in_by' => $reservation->latestCheckInAudit?->actor_name ?? 'N/A',
-            'check_in_role' => $reservation->latestCheckInAudit?->actor_role,
-            'check_in_at' => optional($reservation->latestCheckInAudit?->created_at)->toDateTimeString(),
-            'modified_by' => $reservation->latestModificationAudit?->actor_name ?? 'N/A',
-            'modified_by_role' => $reservation->latestModificationAudit?->actor_role,
-            'modified_at' => optional($reservation->latestModificationAudit?->created_at)->toDateTimeString(),
-            'modified_details' => $reservation->latestModificationAudit?->details,
+            'check_in_by' => $checkInAudit?->actor_name ?? 'N/A',
+            'check_in_role' => $checkInAudit?->actor_role,
+            'check_in_at' => optional($checkInAudit?->created_at)->toDateTimeString(),
+            'modified_by' => $modificationAudit?->actor_name ?? 'N/A',
+            'modified_by_role' => $modificationAudit?->actor_role,
+            'modified_at' => optional($modificationAudit?->created_at)->toDateTimeString(),
+            'modified_details' => $modificationAudit?->details,
             'last_action' => $reservation->latestAudit?->action,
             'last_action_by' => $reservation->latestAudit?->actor_name,
             'last_action_role' => $reservation->latestAudit?->actor_role,

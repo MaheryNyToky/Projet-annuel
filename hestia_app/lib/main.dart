@@ -1343,37 +1343,13 @@ class _QuantitySelector extends StatelessWidget {
                   label,
                   style: const TextStyle(fontWeight: FontWeight.w800),
                 ),
-                if (stayNights > 1)
+                if (maxValue != null)
                   Text(
-                    'Montant pour $stayNights nuit${stayNights > 1 ? 's' : ''} : ${formatPrice(unitPrice * stayNights)} Ar',
-                    style: const TextStyle(
-                      color: _primaryDark,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                if (stayNights > 1)
-                  Text(
-                    '${formatPrice(unitPrice)} Ar / nuit',
-                    style: const TextStyle(color: _muted, fontSize: 12),
-                  ),
-                if (stayNights <= 1)
-                  Text(
-                    '${formatPrice(unitPrice)} Ar',
-                    style: const TextStyle(color: _muted, fontSize: 12),
-                  ),
-                if (stayNights > 1)
-                  Text(
-                    'Base affichée pour comparaison',
+                    'Restant : $maxValue',
                     style: const TextStyle(
                       color: _muted,
                       fontSize: 12,
                     ),
-                  ),
-                if (maxValue != null)
-                  Text(
-                    'Restant : $maxValue',
-                    style: const TextStyle(color: _muted, fontSize: 12),
                   ),
               ],
             ),
@@ -1769,7 +1745,9 @@ class _NewBookingPageState extends State<NewBookingPage> {
   }
 
   int _stayNights() {
-    final nights = _checkOut.difference(_checkIn).inDays;
+    final start = DateTime(_checkIn.year, _checkIn.month, _checkIn.day);
+    final end = DateTime(_checkOut.year, _checkOut.month, _checkOut.day);
+    final nights = end.difference(start).inDays;
     return nights < 1 ? 1 : nights;
   }
 
@@ -1777,21 +1755,25 @@ class _NewBookingPageState extends State<NewBookingPage> {
     return _calculateRoomPrice() + _calculateExtrasPrice();
   }
 
-  int _calculateRoomPrice() {
+  int _calculateRoomNightPrice() {
     int total = 0;
-    final nights = _stayNights();
     for (var room in _selectedRooms) {
-      total += _getSuggestedPrice(room) * nights;
+      total += _getSuggestedPrice(room);
     }
     return total;
   }
 
-  int _calculateExtrasPrice() {
-    final nights = _stayNights();
-    return ((_extraBeds * 50000) + (_extraMattresses * 30000)) * nights;
+  int _calculateRoomPrice() {
+    return _calculateRoomNightPrice() * _stayNights();
   }
 
-  String _nightLabel(int nights) => '$nights nuit${nights > 1 ? 's' : ''}';
+  int _calculateExtrasNightPrice() {
+    return (_extraBeds * 50000) + (_extraMattresses * 30000);
+  }
+
+  int _calculateExtrasPrice() {
+    return _calculateExtrasNightPrice() * _stayNights();
+  }
 
   bool _matchesRoomSearch(dynamic room) {
     final query = _roomSearchQuery.trim().toLowerCase();
@@ -1973,12 +1955,22 @@ class _NewBookingPageState extends State<NewBookingPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         _SummaryLine(
-                          label: 'Prix chambre (${_nightLabel(_stayNights())})',
+                          label: 'Prix par nuit chambres',
+                          value: '${formatPrice(_calculateRoomNightPrice())} Ar',
+                        ),
+                        const SizedBox(height: 6),
+                        _SummaryLine(
+                          label: 'Prix total chambre',
                           value: '${formatPrice(_calculateRoomPrice())} Ar',
                         ),
                         const SizedBox(height: 6),
                         _SummaryLine(
-                          label: 'Prix supplément (${_nightLabel(_stayNights())})',
+                          label: 'Prix par nuit option',
+                          value: '${formatPrice(_calculateExtrasNightPrice())} Ar',
+                        ),
+                        const SizedBox(height: 6),
+                        _SummaryLine(
+                          label: 'Prix total option',
                           value: '${formatPrice(_calculateExtrasPrice())} Ar',
                         ),
                         const Divider(height: 20),
