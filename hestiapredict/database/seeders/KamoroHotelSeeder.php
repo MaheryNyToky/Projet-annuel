@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Models\Room;
 use Illuminate\Database\Seeder;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
@@ -12,7 +13,7 @@ class KamoroHotelSeeder extends Seeder
 {
     public function run(): void
     {
-        // 1. Création des comptes de test (Inclusion du point-virgule de sécurité)
+        // 1. Création ou remise en place des comptes d'accès
         $receptionist = User::updateOrCreate(
             ['email' => 'reco1@kamorohotel.com'],
             ['name' => 'Mahery Réception', 'password' => Hash::make('reco123'), 'role' => 'receptionist']
@@ -25,8 +26,12 @@ class KamoroHotelSeeder extends Seeder
 
         User::updateOrCreate(
             ['email' => 'superadmin@kamorohotel.com'],
-            ['name' => 'Super Admin Kamoro', 'password' => Hash::make('super123'), 'role' => 'superadmin']
+            ['name' => 'Super Admin Kamoro', 'password' => Hash::make('super181802'), 'role' => 'superadmin']
         );
+
+        if (Room::query()->exists()) {
+            return;
+        }
 
         // 2. Injection des chambres avec les 3 types de Triples bien séparés issus du PDF des tarifs
         $roomsData = [

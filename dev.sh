@@ -140,6 +140,13 @@ if ! php artisan migrate --force > "$LOG_DIR/migrate.log" 2>&1; then
     tail -n 40 "$LOG_DIR/migrate.log" 2>/dev/null || true
     exit 1
 fi
+echo "[Laravel] Création des comptes et données de base..."
+if ! php artisan db:seed --force --class=Database\\Seeders\\KamoroHotelSeeder > "$LOG_DIR/seed.log" 2>&1; then
+    echo "[ERREUR] Seed Laravel impossible."
+    echo "[LOG] Dernières lignes du log : $LOG_DIR/seed.log"
+    tail -n 40 "$LOG_DIR/seed.log" 2>/dev/null || true
+    exit 1
+fi
 nohup env AI_ENGINE_URL="http://127.0.0.1:8001" php artisan serve --host=127.0.0.1 --port=8000 > "$LOG_DIR/laravel.log" 2>&1 &
 LARAVEL_PID=$!
 wait_for_url "Laravel" "http://127.0.0.1:8000/api/live-availability" "$LOG_DIR/laravel.log" 30

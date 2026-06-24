@@ -120,7 +120,14 @@ cd ..
 touch database.sqlite
 cd hestiapredict
 php artisan migrate
+php artisan db:seed --class=Database\\Seeders\\KamoroHotelSeeder
 ```
+
+Comptes de connexion de base après génération locale :
+
+- Superadmin : `superadmin@kamorohotel.com` / `super181802`
+- Admin : `admin@kamorohotel.com` / `admin123`
+- Réception : `reco1@kamorohotel.com` / `reco123`
 
 Injecter les données de démonstration de l'hôtel :
 
