@@ -59,7 +59,7 @@ Si FastAPI ne répond pas, Laravel renvoie automatiquement des prix planchers vi
 ├── dev.sh                   # Lancement complet en mode développement
 ├── start_project.sh         # Lancement simple avec build Flutter web existant
 ├── docker-compose.yml       # Base Docker expérimentale
-└── database.sqlite          # Base SQLite locale utilisée par Laravel
+└── database.sqlite          # Base SQLite locale créée sur chaque machine
 ```
 
 ## Prérequis
@@ -113,7 +113,7 @@ DB_DATABASE=../database.sqlite
 AI_ENGINE_URL=http://127.0.0.1:8001
 ```
 
-Créer la base si elle n'existe pas :
+La base SQLite n'est pas versionnée dans Git. Chaque machine doit créer sa propre copie locale si elle n'existe pas :
 
 ```bash
 cd ..
