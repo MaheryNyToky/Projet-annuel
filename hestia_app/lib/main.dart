@@ -507,46 +507,25 @@ class _StaffDashboardState extends State<StaffDashboard> {
     }
 
     http
-        .get(Uri.parse('$baseUrl/api/dashboard/audit-date?date=$dateStr'))
+        .get(
+          Uri.parse(
+            '$baseUrl/api/dashboard/reservation-status-summary?date=$dateStr',
+          ),
+        )
         .then((summaryResp) {
           if (!mounted || summaryResp.statusCode != 200) return;
           final summary = json.decode(summaryResp.body);
-          final confirmed = summary['rooms_confirmed'] is num
-              ? summary['rooms_confirmed'].toInt()
-              : 0;
-          final estimated = summary['rooms_estimated'] is num
-              ? summary['rooms_estimated'].toInt()
-              : confirmed;
           setState(() {
-            _arrivedGuestsCount = confirmed;
-            _pendingGuestsCount = estimated > confirmed
-                ? estimated - confirmed
+            _pendingGuestsCount = summary['pending'] is num
+                ? summary['pending'].toInt()
+                : 0;
+            _arrivedGuestsCount = summary['arrived'] is num
+                ? summary['arrived'].toInt()
                 : 0;
           });
         })
         .catchError((e) {
-          debugPrint("Occupancy summary fetch error: $e");
-          http
-              .get(
-                Uri.parse(
-                  '$baseUrl/api/dashboard/reservation-status-summary?date=$dateStr',
-                ),
-              )
-              .then((fallbackResp) {
-                if (!mounted || fallbackResp.statusCode != 200) return;
-                final summary = json.decode(fallbackResp.body);
-                setState(() {
-                  _pendingGuestsCount = summary['pending'] is num
-                      ? summary['pending'].toInt()
-                      : 0;
-                  _arrivedGuestsCount = summary['arrived'] is num
-                      ? summary['arrived'].toInt()
-                      : 0;
-                });
-              })
-              .catchError((fallbackError) {
-                debugPrint("Fallback occupancy fetch error: $fallbackError");
-              });
+          debugPrint("Reservation status summary fetch error: $e");
         });
 
     http

@@ -242,9 +242,9 @@
                 </article>
 
                 <article class="bento-card col-span-1 p-6 sm:p-7 xl:col-span-3">
-                    <p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">Occupation</p>
+                    <p class="text-xs font-extrabold uppercase tracking-[0.18em] text-[#8f745b]">Réservations</p>
                     <p class="kpi-value mt-4 text-[var(--ink)]"><span id="stat-rooms-confirmed">0</span></p>
-                    <p class="mt-4 text-sm text-[var(--muted)]">Confirmées.</p>
+                    <p class="mt-4 text-sm text-[var(--muted)]">Arrivées.</p>
                     <p class="mt-2 text-sm font-semibold text-[var(--muted)]">En attente : <span id="stat-rooms-pending" class="font-black text-[var(--ink)]">0</span></p>
                 </article>
 
@@ -501,6 +501,7 @@
         let lastSortKey = '';
         let clientHistorySortKey = 'client_name';
         let clientHistorySortDirection = 1;
+        let dashboardRefreshTimer = null;
 
         const chartGridColor = 'rgba(117, 105, 94, 0.16)';
         const chartTextColor = '#75695e';
@@ -619,7 +620,19 @@
             loadAILogic();
             runAudit();
             loadReservations();
+            loadReservationStatusSummary();
             loadAiRevenueSummary();
+        }
+
+        function startAutoRefresh() {
+            if (dashboardRefreshTimer) {
+                return;
+            }
+            dashboardRefreshTimer = setInterval(() => {
+                if (!document.hidden) {
+                    refreshAll();
+                }
+            }, 15000);
         }
 
         function updateConnectionState(isFallback) {
@@ -800,6 +813,40 @@
                 .catch(() => {
                     allReservationsData = [];
                     renderReservationsTable([]);
+                });
+        }
+
+        function loadReservationStatusSummary() {
+            const date = document.getElementById('global-date').value;
+            const cacheKey = cacheKeyFor('/api/dashboard/reservation-status-summary', date);
+            safeFetchJson(`/api/dashboard/reservation-status-summary?date=${date}`, cacheKey, {
+                timeoutMs: 3500,
+                fetchOptions: { cache: 'no-store' },
+            })
+                .then(({ data, fromCache }) => {
+                    const arrived = Number(data.arrived || 0);
+                    const pending = Number(data.pending || 0);
+                    document.getElementById('stat-rooms-confirmed').innerText = arrived;
+                    const roomsPendingEl = document.getElementById('stat-rooms-pending');
+                    if (roomsPendingEl) {
+                        roomsPendingEl.innerText = pending;
+                    }
+
+                    if (fromCache) {
+                        const summary = document.getElementById('reservation-status-summary');
+                        if (summary) {
+                            summary.textContent = 'Données locales affichées en mode dégradé.';
+                        }
+                    }
+                })
+                .catch(() => {
+                    const cached = readCache(cacheKey);
+                    if (!cached) return;
+                    document.getElementById('stat-rooms-confirmed').innerText = Number(cached.arrived || 0);
+                    const cachedPendingEl = document.getElementById('stat-rooms-pending');
+                    if (cachedPendingEl) {
+                        cachedPendingEl.innerText = Number(cached.pending || 0);
+                    }
                 });
         }
 
@@ -1581,13 +1628,6 @@
                     document.getElementById('stat-ca-official').innerText = formatMoney(data.daily_ca_official);
                     document.getElementById('stat-ca-pending').innerText = formatMoney(data.daily_ca_pending);
                     document.getElementById('stat-ca-total').innerText = formatMoney(data.total_ca);
-                    const roomsConfirmed = data.rooms_confirmed || 0;
-                    const roomsPending = Math.max(0, (data.rooms_estimated || 0) - roomsConfirmed);
-                    document.getElementById('stat-rooms-confirmed').innerText = roomsConfirmed;
-                    const roomsPendingEl = document.getElementById('stat-rooms-pending');
-                    if (roomsPendingEl) {
-                        roomsPendingEl.innerText = roomsPending;
-                    }
                     document.getElementById('ca-period').innerText = data.period;
 
                     document.getElementById('finance-total-official').innerText = formatMoney(data.daily_ca_official);
@@ -1618,13 +1658,6 @@
                     document.getElementById('stat-ca-official').innerText = formatMoney(cached.daily_ca_official);
                     document.getElementById('stat-ca-pending').innerText = formatMoney(cached.daily_ca_pending);
                     document.getElementById('stat-ca-total').innerText = formatMoney(cached.total_ca);
-                    const cachedConfirmed = cached.rooms_confirmed || 0;
-                    const cachedPending = Math.max(0, (cached.rooms_estimated || 0) - cachedConfirmed);
-                    document.getElementById('stat-rooms-confirmed').innerText = cachedConfirmed;
-                    const cachedPendingEl = document.getElementById('stat-rooms-pending');
-                    if (cachedPendingEl) {
-                        cachedPendingEl.innerText = cachedPending;
-                    }
                     document.getElementById('ca-period').innerText = cached.period;
                 });
         }
@@ -1744,6 +1777,13 @@
                 }
             });
 
+            window.addEventListener('focus', refreshAll);
+            document.addEventListener('visibilitychange', () => {
+                if (!document.hidden) {
+                    refreshAll();
+                }
+            });
+            startAutoRefresh();
             refreshAll();
         });
     </script>
