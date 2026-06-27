@@ -6,8 +6,7 @@ $DesktopCandidates = @(
     [Environment]::GetFolderPath("Desktop")
 ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
 $Shell = New-Object -ComObject WScript.Shell
-$PowerShellExecutable = Join-Path $PSHOME "powershell.exe"
-$LauncherScript = Join-Path $ProjectRoot "Demarrer-Kamoro-Au-Demarrage.ps1"
+$LauncherBatch = Join-Path $ProjectRoot "Lancer-Kamoro-Docker.bat"
 
 if (-not $DesktopCandidates -or $DesktopCandidates.Count -eq 0) {
     throw "Aucun dossier Bureau valide n'a ete trouve."
@@ -38,8 +37,7 @@ function New-ShortcutForTarget {
 
 New-ShortcutForTarget `
     -Name "Kamoro - Lancer" `
-    -Target $PowerShellExecutable `
-    -Arguments "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"`"$LauncherScript`"`"" `
+    -Target $LauncherBatch `
     -Description "Lancer Kamoro Reservation Facturation"
 
 New-ShortcutForTarget `
