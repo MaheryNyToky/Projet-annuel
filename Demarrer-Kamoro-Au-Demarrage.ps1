@@ -19,7 +19,7 @@ function Write-Log {
 
 function Invoke-GitPullWithTimeout {
     param(
-        [int]$TimeoutSeconds = 8
+        [int]$TimeoutSeconds = 3
     )
 
     $git = Get-Command git -ErrorAction SilentlyContinue
@@ -121,9 +121,9 @@ Set-Location $ProjectRoot
 
 try {
     Write-Log "Mise a jour du depot local..."
-    $gitUpdate = Invoke-GitPullWithTimeout -TimeoutSeconds 8
+    $gitUpdate = Invoke-GitPullWithTimeout -TimeoutSeconds 3
     if ($gitUpdate.TimedOut) {
-        Write-Log "Timeout git apres 8 secondes. On continue avec le depot local courant."
+        Write-Log "Timeout git apres 3 secondes. On continue avec le depot local courant."
     } elseif ($gitUpdate.ExitCode -ne 0) {
         Write-Log "Echec du git pull avec le code $($gitUpdate.ExitCode). On continue avec le depot local courant."
     } else {
