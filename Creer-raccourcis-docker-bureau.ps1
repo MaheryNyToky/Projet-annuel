@@ -6,6 +6,7 @@ $DesktopCandidates = @(
     [Environment]::GetFolderPath("Desktop")
 ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
 $Shell = New-Object -ComObject WScript.Shell
+$PowerShellExecutable = Join-Path $PSHOME "powershell.exe"
 $LauncherScript = Join-Path $ProjectRoot "Demarrer-Kamoro-Au-Demarrage.ps1"
 
 if (-not $DesktopCandidates -or $DesktopCandidates.Count -eq 0) {
@@ -28,9 +29,7 @@ function New-ShortcutForTarget {
         $ShortcutPath = Join-Path $DesktopPath "$Name.lnk"
         $Shortcut = $Shell.CreateShortcut($ShortcutPath)
         $Shortcut.TargetPath = $Target
-        if ($Arguments) {
-            $Shortcut.Arguments = $Arguments
-        }
+        $Shortcut.Arguments = if ($Arguments) { $Arguments } else { "" }
         $Shortcut.WorkingDirectory = $ProjectRoot
         $Shortcut.Description = $Description
         $Shortcut.Save()
@@ -39,9 +38,9 @@ function New-ShortcutForTarget {
 
 New-ShortcutForTarget `
     -Name "Kamoro - Lancer" `
-    -Target (Join-Path $PSHOME "powershell.exe") `
-    -Arguments "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$LauncherScript`"" `
-    -Description "Lancer Kamoro Reservation Facturation avec mise a jour locale"
+    -Target $PowerShellExecutable `
+    -Arguments "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"`"$LauncherScript`"`"" `
+    -Description "Lancer Kamoro Reservation Facturation"
 
 New-ShortcutForTarget `
     -Name "Kamoro - Arreter" `

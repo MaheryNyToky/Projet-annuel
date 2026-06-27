@@ -20,4 +20,4 @@ if errorlevel 1 (
 
 echo.
 echo Application lancee.
-pause
+exit /b 0
