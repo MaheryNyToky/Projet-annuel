@@ -189,7 +189,7 @@ Pour lancer Kamoro automatiquement a l'ouverture de session Windows :
 ```
 
 Le script cree un raccourci dans le dossier `Startup` de Windows. Il lance l'environnement Docker en arriere-plan et attend que Docker soit pret.
-Avant de demarrer, il recupere automatiquement les derniers changements du depot avec `git pull --ff-only origin main`.
+Avant de demarrer, il tente de recuperer les derniers changements du depot pendant 8 secondes maximum. Si le depot distant n'est pas joignable assez vite, il continue avec la copie locale actuelle.
 
 Pour desactiver ce comportement :
 

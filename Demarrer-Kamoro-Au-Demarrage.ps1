@@ -17,25 +17,63 @@ function Write-Log {
     Add-Content -Path $LogFile -Value "[$Timestamp] $Message"
 }
 
-function Test-InternetAccess {
-    $client = $null
-    try {
-        $client = [System.Net.Http.HttpClient]::new()
-        $client.Timeout = [TimeSpan]::FromSeconds(3)
-        $response = $client.GetAsync("https://github.com/").GetAwaiter().GetResult()
-        return $response.IsSuccessStatusCode
-    } catch {
-        return $false
-    } finally {
-        if ($client) {
-            $client.Dispose()
+function Invoke-GitPullWithTimeout {
+    param(
+        [int]$TimeoutSeconds = 8
+    )
+
+    $git = Get-Command git -ErrorAction SilentlyContinue
+    if (-not $git) {
+        throw "Git n'est pas disponible dans le PATH."
+    }
+
+    $gitProcess = Start-Process -FilePath $git.Path -ArgumentList @(
+        "-C",
+        $ProjectRoot,
+        "pull",
+        "--ff-only",
+        "origin",
+        "main"
+    ) -PassThru -WindowStyle Hidden -RedirectStandardOutput $StdOutLog -RedirectStandardError $StdErrLog
+
+    if (-not $gitProcess.WaitForExit($TimeoutSeconds * 1000)) {
+        try {
+            $gitProcess.Kill()
+        } catch {
+            # Ignore les erreurs de terminaison forcée.
         }
+
+        return @{
+            TimedOut = $true
+            ExitCode = $null
+        }
+    }
+
+    return @{
+        TimedOut = $false
+        ExitCode = $gitProcess.ExitCode
     }
 }
 
 function Start-LocalFallback {
     if (-not (Test-Path (Join-Path $LocalWebRoot "index.html"))) {
-        throw "Le build Flutter local est introuvable dans '$LocalWebRoot'."
+        $flutter = Get-Command flutter -ErrorAction SilentlyContinue
+        if (-not $flutter) {
+            throw "Le build Flutter local est introuvable dans '$LocalWebRoot' et Flutter n'est pas disponible."
+        }
+
+        Write-Log "Build Flutter local manquant. Reconstruction en cours."
+        $flutterProcess = Start-Process -FilePath $flutter.Path -ArgumentList @(
+            "build",
+            "web",
+            "--pwa-strategy=none",
+            "--dart-define=API_BASE_URL=http://127.0.0.1:8000"
+        ) -WorkingDirectory (Join-Path $ProjectRoot "hestia_app") -PassThru -WindowStyle Hidden -RedirectStandardOutput $StdOutLog -RedirectStandardError $StdErrLog
+
+        $flutterProcess.WaitForExit()
+        if ($flutterProcess.ExitCode -ne 0) {
+            throw "La reconstruction Flutter locale a echoue."
+        }
     }
 
     if (-not (Test-Path $LocalWebServerScript)) {
@@ -82,15 +120,14 @@ function Wait-ForDocker {
 Set-Location $ProjectRoot
 
 try {
-    if (-not (Test-InternetAccess)) {
-        throw "Aucune connexion internet detectee."
-    }
-
     Write-Log "Mise a jour du depot local..."
-    git -C $ProjectRoot pull --ff-only origin main | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        Write-Log "Echec du git pull."
-        throw "Impossible de recuperer les dernieres modifications."
+    $gitUpdate = Invoke-GitPullWithTimeout -TimeoutSeconds 8
+    if ($gitUpdate.TimedOut) {
+        Write-Log "Timeout git apres 8 secondes. On continue avec le depot local courant."
+    } elseif ($gitUpdate.ExitCode -ne 0) {
+        Write-Log "Echec du git pull avec le code $($gitUpdate.ExitCode). On continue avec le depot local courant."
+    } else {
+        Write-Log "Depot local mis a jour depuis origin/main."
     }
 
     Write-Log "Attente de Docker Desktop..."
