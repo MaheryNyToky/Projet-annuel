@@ -74,6 +74,10 @@ class AvailabilityService
                     ->sortBy(fn (Collection $rooms) => $this->roomCategorySortKey($rooms->first()))
                     ->map(function (Collection $rooms) use ($occupiedRoomIds) {
                         $first = $rooms->first();
+                        $availableRooms = $rooms
+                            ->whereNotIn('id', $occupiedRoomIds)
+                            ->sortBy('room_number')
+                            ->values();
 
                         return [
                             'identifier' => $first->identifier,
@@ -83,7 +87,11 @@ class AvailabilityService
                             'fixed_price' => $first->base_price_ariary,
                             'is_fixed_price' => $rooms->every(fn (Room $room) => $room->is_fixed_price),
                             'total' => $rooms->count(),
-                            'available' => $rooms->whereNotIn('id', $occupiedRoomIds)->count(),
+                            'available' => $availableRooms->count(),
+                            'available_room_numbers' => $availableRooms
+                                ->pluck('room_number')
+                                ->values()
+                                ->all(),
                         ];
                     })
                     ->values()

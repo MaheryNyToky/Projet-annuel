@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-class AvailabilityCard extends StatelessWidget {
+class AvailabilityCard extends StatefulWidget {
   const AvailabilityCard({
     super.key,
     required this.category,
@@ -11,7 +11,15 @@ class AvailabilityCard extends StatelessWidget {
   final int? suggestedPrice;
 
   @override
+  State<AvailabilityCard> createState() => _AvailabilityCardState();
+}
+
+class _AvailabilityCardState extends State<AvailabilityCard> {
+  bool _expanded = false;
+
+  @override
   Widget build(BuildContext context) {
+    final category = widget.category;
     final available = category['available'] ?? 0;
     final total = category['total'] ?? 0;
     final basePrice = category['base_price'] ?? category['fixed_price'] ?? 0;
@@ -22,6 +30,9 @@ class AvailabilityCard extends StatelessWidget {
     final icon = isFull ? Icons.no_meeting_room : Icons.meeting_room;
     final color = isFull ? const Color(0xFF9F1239) : const Color(0xFF0F766E);
     final softColor = isFull ? const Color(0xFFFFEEF2) : const Color(0xFFE8F7F2);
+    final availableRoomNumbers = List<String>.from(
+      category['available_room_numbers'] as List<dynamic>? ?? const [],
+    );
 
     return Material(
       color: Colors.white.withValues(alpha: 0.88),
@@ -34,7 +45,9 @@ class AvailabilityCard extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         borderRadius: BorderRadius.circular(24),
-        onTap: () {},
+        onTap: availableRoomNumbers.isEmpty
+            ? null
+            : () => setState(() => _expanded = !_expanded),
         child: Padding(
           padding: const EdgeInsets.all(18),
           child: Column(
@@ -136,7 +149,8 @@ class AvailabilityCard extends StatelessWidget {
                       ),
                     ],
                   ),
-                  if (suggestedPrice != null && suggestedPrice != basePrice)
+                  if (widget.suggestedPrice != null &&
+                      widget.suggestedPrice != basePrice)
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
@@ -149,7 +163,7 @@ class AvailabilityCard extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          '$suggestedPrice Ar',
+                          '${widget.suggestedPrice} Ar',
                           style: const TextStyle(
                             color: Color(0xFF0F766E),
                             fontWeight: FontWeight.w900,
@@ -169,6 +183,95 @@ class AvailabilityCard extends StatelessWidget {
                     ),
                 ],
               ),
+              if (availableRoomNumbers.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                AnimatedCrossFade(
+                  crossFadeState: _expanded
+                      ? CrossFadeState.showSecond
+                      : CrossFadeState.showFirst,
+                  duration: const Duration(milliseconds: 220),
+                  firstCurve: Curves.easeOut,
+                  secondCurve: Curves.easeOut,
+                  firstChild: Row(
+                    children: [
+                      Text(
+                        _expanded ? 'Masquer les numéros' : 'Cliquer pour voir les numéros libres',
+                        style: TextStyle(
+                          color: color.withValues(alpha: 0.78),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const Spacer(),
+                      Icon(
+                        _expanded ? Icons.expand_less : Icons.expand_more,
+                        color: color.withValues(alpha: 0.72),
+                        size: 18,
+                      ),
+                    ],
+                  ),
+                  secondChild: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Text(
+                            'Numéros libres',
+                            style: TextStyle(
+                              color: color,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const Spacer(),
+                          Icon(
+                            Icons.expand_less,
+                            color: color.withValues(alpha: 0.72),
+                            size: 18,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: availableRoomNumbers
+                            .map(
+                              (roomNumber) => Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 7,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: softColor,
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Text(
+                                  roomNumber,
+                                  style: TextStyle(
+                                    color: color,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ),
+                            )
+                            .toList(),
+                      ),
+                    ],
+                  ),
+                ),
+              ] else ...[
+                const SizedBox(height: 12),
+                Text(
+                  'Aucune chambre libre dans cette catégorie',
+                  style: TextStyle(
+                    color: color.withValues(alpha: 0.72),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
             ],
           ),
         ),
