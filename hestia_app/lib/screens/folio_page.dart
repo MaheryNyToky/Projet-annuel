@@ -191,6 +191,14 @@ class _FolioPageState extends State<FolioPage> {
   }
 
   Future<void> _generatePdf() async {
+    if (_documentType != 'facture') {
+      _showMessage(
+        'La génération PDF est réservée au mode facture.',
+        isError: true,
+      );
+      return;
+    }
+
     final discountText = _discountController.text.trim();
     final discountValue = int.tryParse(discountText) ?? 0;
     final payload = <String, dynamic>{
@@ -239,6 +247,8 @@ class _FolioPageState extends State<FolioPage> {
     Map<String, dynamic> body, {
     required String successMessage,
   }) async {
+    if (_isBusy) return;
+
     setState(() => _isBusy = true);
     try {
       final uri = Uri.parse('$baseUrl$path');
@@ -674,7 +684,7 @@ class _FolioPageState extends State<FolioPage> {
                             action: _isFinalized
                                 ? null
                                 : TextButton.icon(
-                                    onPressed: _addExtra,
+                                    onPressed: _isBusy ? null : _addExtra,
                                     icon: const Icon(Icons.add),
                                     label: const Text('Extra'),
                                   ),
@@ -698,7 +708,7 @@ class _FolioPageState extends State<FolioPage> {
                             action: _isFinalized
                                 ? null
                                 : TextButton.icon(
-                                    onPressed: _addPayment,
+                                    onPressed: _isBusy ? null : _addPayment,
                                     icon: const Icon(Icons.add_card),
                                     label: const Text('Paiement'),
                                   ),
@@ -771,12 +781,17 @@ class _FolioPageState extends State<FolioPage> {
                           ],
                           const SizedBox(height: 12),
                           ElevatedButton.icon(
-                            onPressed: _isBusy ? null : _generatePdf,
+                            onPressed:
+                                _isBusy || _documentType != 'facture'
+                                ? null
+                                : _generatePdf,
                             icon: const Icon(Icons.picture_as_pdf_outlined),
                             label: Text(
-                              _hasPdf
-                                  ? 'Mettre à jour le PDF'
-                                  : 'Générer le PDF',
+                              _documentType == 'facture'
+                                  ? (_hasPdf
+                                        ? 'Mettre à jour le PDF'
+                                        : 'Générer le PDF')
+                                  : 'PDF réservé à la facture',
                             ),
                           ),
                           const SizedBox(height: 10),

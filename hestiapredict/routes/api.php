@@ -22,21 +22,19 @@ Route::middleware('throttle:120,1')->group(function () {
     Route::get('/users', [HotelManagementController::class, 'getUsers']);
 });
 
-Route::middleware('throttle:30,1')->group(function () {
-    Route::post('/bookings', [HotelManagementController::class, 'saveBooking']);
-    Route::post('/bookings/update-status', [HotelManagementController::class, 'updateBookingStatus']);
-    Route::put('/reservations/{id}', [HotelManagementController::class, 'updateReservation']);
-    Route::patch('/reservations/{id}', [HotelManagementController::class, 'updateReservation']);
-    Route::post('/reservations/{id}/checkin', [PMSController::class, 'checkIn']);
-    Route::post('/reservations/{id}/deposit', [PMSController::class, 'addDeposit']);
-    Route::post('/invoices/{id}/items', [PMSController::class, 'addInvoiceItem']);
-    Route::post('/invoices/{id}/payments', [PMSController::class, 'addPayment']);
-    Route::put('/invoices/{id}/payments/{paymentId}', [PMSController::class, 'updatePayment']);
-    Route::post('/users', [HotelManagementController::class, 'createUser']);
-    Route::post('/users/update', [HotelManagementController::class, 'updateUser']);
-    Route::delete('/users/{id}', [HotelManagementController::class, 'deleteUser']);
-    Route::post('/login', [HotelManagementController::class, 'login']);
-});
+Route::post('/bookings', [HotelManagementController::class, 'saveBooking']);
+Route::post('/bookings/update-status', [HotelManagementController::class, 'updateBookingStatus']);
+Route::put('/reservations/{id}', [HotelManagementController::class, 'updateReservation']);
+Route::patch('/reservations/{id}', [HotelManagementController::class, 'updateReservation']);
+Route::post('/reservations/{id}/checkin', [PMSController::class, 'checkIn']);
+Route::post('/reservations/{id}/deposit', [PMSController::class, 'addDeposit']);
+Route::post('/invoices/{id}/items', [PMSController::class, 'addInvoiceItem']);
+Route::post('/invoices/{id}/payments', [PMSController::class, 'addPayment']);
+Route::put('/invoices/{id}/payments/{paymentId}', [PMSController::class, 'updatePayment']);
+Route::post('/users', [HotelManagementController::class, 'createUser']);
+Route::post('/users/update', [HotelManagementController::class, 'updateUser']);
+Route::delete('/users/{id}', [HotelManagementController::class, 'deleteUser']);
+Route::post('/login', [HotelManagementController::class, 'login'])->middleware('throttle:10,1');
 
 Route::middleware('throttle:60,1')->group(function () {
     Route::post('/invoices/{id}/generate-pdf', [PMSController::class, 'generatePdf']);

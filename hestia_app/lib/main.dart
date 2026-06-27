@@ -1569,6 +1569,7 @@ class _NewBookingPageState extends State<NewBookingPage> {
   int _remainingExtraBeds = 6;
   int _remainingExtraMattresses = 6;
   bool _loadingRooms = false;
+  bool _savingBooking = false;
   bool _isBookingCom = false;
   ClientProfile? _selectedClient;
   bool _suppressSelectedClientReset = false;
@@ -1780,6 +1781,8 @@ class _NewBookingPageState extends State<NewBookingPage> {
   }
 
   Future<void> _saveBooking() async {
+    if (_savingBooking) return;
+
     if (_clientName().isEmpty || _selectedRooms.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -1804,7 +1807,10 @@ class _NewBookingPageState extends State<NewBookingPage> {
       return;
     }
 
-    setState(() => _loadingRooms = true);
+    setState(() {
+      _loadingRooms = true;
+      _savingBooking = true;
+    });
     try {
       final response = await http
           .post(
@@ -1831,7 +1837,7 @@ class _NewBookingPageState extends State<NewBookingPage> {
               'receptionist_name': widget.userName,
             }),
           )
-          .timeout(const Duration(seconds: 8));
+          .timeout(const Duration(seconds: 30));
 
       if (response.statusCode == 201 || response.statusCode == 200) {
         if (mounted) {
@@ -1845,6 +1851,17 @@ class _NewBookingPageState extends State<NewBookingPage> {
         }
       } else {
         if (mounted) {
+          if (response.statusCode == 429) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Le serveur est occupé. Attends quelques secondes puis réessaie.',
+                ),
+                backgroundColor: Colors.orange,
+              ),
+            );
+            return;
+          }
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Erreur: ${response.body}'),
@@ -1855,15 +1872,24 @@ class _NewBookingPageState extends State<NewBookingPage> {
       }
     } catch (e) {
       if (mounted) {
+        final message = e.toString().contains('TimeoutException')
+            ? 'La création a pris trop de temps. Vérifie si la réservation a bien été enregistrée avant de réessayer.'
+            : 'Impossible de contacter le serveur.';
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Impossible de contacter le serveur.'),
+          SnackBar(
+            content: Text(message),
             backgroundColor: Colors.red,
           ),
         );
       }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loadingRooms = false;
+          _savingBooking = false;
+        });
+      }
     }
-    setState(() => _loadingRooms = false);
   }
 
   int _getSuggestedPrice(dynamic room) {
@@ -2153,13 +2179,19 @@ class _NewBookingPageState extends State<NewBookingPage> {
                     ),
                   ),
                   const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: _saveBooking,
-                      child: const Text('Enregistrer la réservation'),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: _savingBooking ? null : _saveBooking,
+                        child: _savingBooking
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Text('Enregistrer la réservation'),
+                      ),
                     ),
-                  ),
                 ],
               ),
             ),

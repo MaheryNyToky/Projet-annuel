@@ -1137,7 +1137,7 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
           'processed_by_name': widget.userName,
           'processed_by_role': widget.role,
         },
-        const Duration(seconds: 20),
+        const Duration(seconds: 45),
       );
 
       if (!mounted) return false;
@@ -1146,19 +1146,72 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
           ? json.decode(response.body)
           : null;
       if (response.statusCode >= 200 && response.statusCode < 300) {
+        if (decoded is Map) {
+          final invoice = decoded['invoice'] is Map
+              ? Map<String, dynamic>.from(decoded['invoice'] as Map)
+              : null;
+          final payment = decoded['payment'] is Map
+              ? Map<String, dynamic>.from(decoded['payment'] as Map)
+              : null;
+          if (invoice != null || payment != null) {
+            setState(() {
+              final reservationId = _asInt(reservation['id']);
+              final index = _reservations.indexWhere(
+                (item) => _asInt((item as Map)['id']) == reservationId,
+              );
+              if (index != -1) {
+                final updated = Map<String, dynamic>.from(
+                  _reservations[index] as Map,
+                );
+                if (invoice != null) {
+                  updated['deposit_amount_ariary'] =
+                      invoice['deposit_amount_ariary'] ??
+                          updated['deposit_amount_ariary'];
+                  updated['paid_amount_ariary'] =
+                      invoice['paid_amount_ariary'] ??
+                          updated['paid_amount_ariary'];
+                  updated['balance_amount_ariary'] =
+                      invoice['balance_amount_ariary'] ??
+                          updated['balance_amount_ariary'];
+                  updated['payment_status'] =
+                      invoice['status'] ?? updated['payment_status'];
+                }
+                if (payment != null) {
+                  updated['latest_deposit_method'] = payment['payment_method'];
+                  updated['latest_deposit_operator'] = payment['payment_operator'];
+                  updated['latest_deposit_processed_by'] =
+                      payment['processed_by_name'];
+                  updated['latest_deposit_processed_by_role'] =
+                      payment['processed_by_role'];
+                }
+                _reservations[index] = updated;
+              }
+            });
+          }
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Acompte enregistré.'),
             backgroundColor: Colors.green,
           ),
         );
-        _fetchReservations();
         return true;
       }
 
       final message = decoded is Map && decoded['message'] != null
           ? decoded['message'].toString()
           : 'Erreur ${response.statusCode}';
+      if (response.statusCode == 429) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Le serveur traite encore une demande précédente. Attends quelques secondes puis réessaie.',
+            ),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return false;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message), backgroundColor: Colors.red),
       );

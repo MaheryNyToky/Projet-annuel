@@ -265,7 +265,7 @@ class PMSController extends Controller
         ]);
 
         $result = DB::transaction(function () use ($validated, $id) {
-            $reservation = Reservation::with(['invoice.payments', 'audits', 'guest'])->lockForUpdate()->findOrFail($id);
+            $reservation = Reservation::with(['invoice', 'guest'])->lockForUpdate()->findOrFail($id);
             $invoice = $reservation->invoice ?: $this->ensureOpenFolio($reservation);
             $previousStatus = $invoice->status;
 
@@ -310,7 +310,7 @@ class PMSController extends Controller
                 ],
             ]);
 
-            $invoice = $this->syncInvoiceAfterPayment($invoice);
+            $invoice = $this->syncInvoiceAfterDeposit($invoice);
 
             if ($previousStatus !== 'paid' && $invoice->status === 'paid') {
                 $guest = $invoice->reservation?->guest;
@@ -321,7 +321,13 @@ class PMSController extends Controller
 
             return [
                 'payment' => $payment,
-                'invoice' => $this->folioPayload($invoice),
+                'invoice' => [
+                    'id' => $invoice->id,
+                    'status' => $invoice->status,
+                    'deposit_amount_ariary' => (int) $invoice->deposit_amount_ariary,
+                    'paid_amount_ariary' => (int) $invoice->paid_amount_ariary,
+                    'balance_amount_ariary' => (int) $invoice->balance_amount_ariary,
+                ],
             ];
         });
 
@@ -990,7 +996,7 @@ class PMSController extends Controller
         ]);
     }
 
-    private function syncInvoiceAfterPayment(Invoice $invoice): Invoice
+    private function syncInvoiceAfterPayment(Invoice $invoice, bool $regeneratePdf = false): Invoice
     {
         $invoice->refresh();
         $depositAmount = (int) $invoice->payments()->where('payment_context', 'deposit')->sum('amount_ariary');
@@ -1001,9 +1007,34 @@ class PMSController extends Controller
 
         $this->updatePaymentStatus($invoice->refresh());
         $invoice = $invoice->refresh()->load('reservation.guest', 'payments');
-        $this->ensureInvoicePdf($invoice, $invoice->document_type ?? 'facture');
+        if ($regeneratePdf) {
+            $this->ensureInvoicePdf($invoice, $invoice->document_type ?? 'facture');
+        }
 
         return $invoice->refresh()->load('reservation.guest', 'payments');
+    }
+
+    private function syncInvoiceAfterDeposit(Invoice $invoice): Invoice
+    {
+        $invoice->refresh();
+        if ($invoice->status === 'finalized') {
+            return $invoice->refresh()->load('reservation.guest');
+        }
+
+        $depositAmount = (int) $invoice->payments()->where('payment_context', 'deposit')->sum('amount_ariary');
+        $paidAmount = (int) $invoice->payments()->sum('amount_ariary');
+        $status = match (true) {
+            $paidAmount <= 0 => 'open',
+            $paidAmount < (int) $invoice->total_amount_ariary => 'partial',
+            default => 'paid',
+        };
+
+        $invoice->update([
+            'deposit_amount_ariary' => $depositAmount,
+            'status' => $status,
+        ]);
+
+        return $invoice->refresh()->load('reservation.guest');
     }
 
     private function normalizePaymentAmounts(int $receivedAmount, int $availableAmount, string $paymentMethod): array

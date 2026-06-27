@@ -210,6 +210,7 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
     if (user == null && initialGeneratedEmail.isNotEmpty) {
       emailController.text = initialGeneratedEmail;
     }
+    var isSubmitting = false;
 
     void syncEmailFromName() {
       if (user != null && emailController.text.trim().isNotEmpty) {
@@ -343,58 +344,80 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
                 ),
                 actions: [
                   TextButton(
-                    onPressed: () => Navigator.pop(context),
+                    onPressed: isSubmitting ? null : () => Navigator.pop(context),
                     child: const Text('Annuler'),
                   ),
                   ElevatedButton(
-                    onPressed: () async {
-                      final data = {
-                        'name': nameController.text,
-                        'email': emailController.text,
-                        'role': role,
-                        'actor_role': widget.currentRole,
-                      };
-                      if (user != null) data['id'] = user['id'];
-                      if (passwordController.text.isNotEmpty) {
-                        data['password'] = passwordController.text;
-                      }
+                    onPressed: isSubmitting
+                        ? null
+                        : () async {
+                            setModalState(() => isSubmitting = true);
+                            try {
+                              final data = {
+                                'name': nameController.text,
+                                'email': emailController.text,
+                                'role': role,
+                                'actor_role': widget.currentRole,
+                              };
+                              if (user != null) data['id'] = user['id'];
+                              if (passwordController.text.isNotEmpty) {
+                                data['password'] = passwordController.text;
+                              }
 
-                      final url = user == null
-                          ? '$baseUrl/api/users'
-                          : '$baseUrl/api/users/update';
+                              final url = user == null
+                                  ? '$baseUrl/api/users'
+                                  : '$baseUrl/api/users/update';
 
-                      try {
-                        final resp = await http
-                            .post(
-                              Uri.parse(url),
-                              headers: {'Content-Type': 'application/json'},
-                              body: json.encode(data),
-                            )
-                            .timeout(const Duration(seconds: 5));
-                        if (!context.mounted) return;
-                        if (resp.statusCode == 200) {
-                          Navigator.pop(context);
-                          _fetchUsers();
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Personnel mis à jour'),
-                            ),
-                          );
-                        } else {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Erreur: ${resp.body}')),
-                          );
-                        }
-                      } catch (e) {
-                        if (!context.mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Erreur de connexion serveur'),
-                          ),
-                        );
-                      }
-                    },
-                    child: const Text('Enregistrer'),
+                              final resp = await http
+                                  .post(
+                                    Uri.parse(url),
+                                    headers: {'Content-Type': 'application/json'},
+                                    body: json.encode(data),
+                                  )
+                                  .timeout(const Duration(seconds: 10));
+                              if (!context.mounted) return;
+                              if (resp.statusCode == 200) {
+                                Navigator.pop(context);
+                                _fetchUsers();
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Personnel mis à jour'),
+                                  ),
+                                );
+                              } else if (resp.statusCode == 429) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Le serveur traite encore une demande précédente. Réessaie dans quelques secondes.',
+                                    ),
+                                    backgroundColor: Colors.orange,
+                                  ),
+                                );
+                              } else {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('Erreur: ${resp.body}')),
+                                );
+                              }
+                            } catch (e) {
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Erreur de connexion serveur'),
+                                ),
+                              );
+                            } finally {
+                              if (context.mounted) {
+                                setModalState(() => isSubmitting = false);
+                              }
+                            }
+                          },
+                    child: isSubmitting
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Enregistrer'),
                   ),
                 ],
               );
