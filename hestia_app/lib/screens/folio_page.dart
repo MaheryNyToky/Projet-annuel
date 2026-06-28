@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -313,16 +312,6 @@ class _FolioPageState extends State<FolioPage> {
     });
   }
 
-  List<int> _invoiceIdsForPdfGeneration() {
-    if (_isOrganizationReservation && _billingMode == 'individual') {
-      return _effectiveIndividualSelection.toList();
-    }
-    final groupedInvoiceId = _invoiceIdForBillingMode('grouped');
-    return groupedInvoiceId == null || groupedInvoiceId <= 0
-        ? const []
-        : <int>[groupedInvoiceId];
-  }
-
   int _stayNights() {
     final rawCheckIn =
         _folio?['check_in']?.toString() ??
@@ -566,23 +555,6 @@ class _FolioPageState extends State<FolioPage> {
           : 'Erreur ${response.statusCode}';
       throw Exception(message);
     }
-  }
-
-  Future<void> _sendEmail() async {
-    if (!_hasPdf) {
-      _showMessage('Générez la facture avant l’envoi email.', isError: true);
-      return;
-    }
-
-    final email = await _showEmailDialog();
-    if (email == null) return;
-
-    await _sendJson(
-      'POST',
-      '/api/invoices/$_invoiceId/send-email',
-      {'email': email},
-      successMessage: 'Facture envoyée par email.',
-    );
   }
 
   Future<void> _downloadInvoice() async {
@@ -912,42 +884,6 @@ class _FolioPageState extends State<FolioPage> {
     super.dispose();
   }
 
-  Future<String?> _showEmailDialog() {
-    final existing = widget.reservation['email']?.toString();
-    final controller = TextEditingController(
-      text: existing == null || existing == 'N/A' ? '' : existing,
-    );
-
-    return showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Envoyer la facture'),
-        content: TextField(
-          controller: controller,
-          keyboardType: TextInputType.emailAddress,
-          decoration: const InputDecoration(
-            labelText: 'Email client',
-            prefixIcon: Icon(Icons.mail_outline),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Annuler'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final email = controller.text.trim();
-              if (email.isEmpty) return;
-              Navigator.pop(context, email);
-            },
-            child: const Text('Envoyer'),
-          ),
-        ],
-      ),
-    );
-  }
-
   void _showMessage(String message, {bool isError = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -997,10 +933,6 @@ class _FolioPageState extends State<FolioPage> {
         .where((item) => (item as Map)['type']?.toString() != 'tax')
         .toList();
     final payments = (_folio?['payments'] as List<dynamic>? ?? []);
-    final roomBookings = (_folio?['room_bookings'] as List<dynamic>? ?? [])
-        .whereType<Map>()
-        .map((room) => Map<String, dynamic>.from(room))
-        .toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -1232,14 +1164,10 @@ class _FolioPageState extends State<FolioPage> {
                           else
                             ...payments.map(
                               (payment) => _PaymentTile(
-                                payment: Map<String, dynamic>.from(
-                                  payment as Map,
-                                ),
+                                payment: Map<String, dynamic>.from(payment),
                                 onEdit: !_isFinalized && _canEditPayments
                                     ? () => _editPayment(
-                                        Map<String, dynamic>.from(
-                                          payment as Map,
-                                        ),
+                                        Map<String, dynamic>.from(payment),
                                       )
                                     : null,
                               ),

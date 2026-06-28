@@ -500,6 +500,7 @@ class _CheckInPageState extends State<CheckInPage> {
 
   Future<void> _submit() async {
     await _prefillMissingClientData();
+    if (!mounted) return;
 
     if (!_formKey.currentState!.validate()) return;
     if (!_isOrganizationReservation && _dateOfBirth == null) {

@@ -225,7 +225,7 @@ class BookingService
                 'reservation_id' => $reservation->id,
                 'action' => 'cancelled',
                 'actor_name' => $data['cancelled_by_name'] ?? null,
-                'actor_role' => null,
+                'actor_role' => $data['cancelled_by_role'] ?? null,
                 'details' => [
                     'status' => $status,
                     'payment_status' => $paymentStatus,
@@ -291,6 +291,8 @@ class BookingService
                     'reservation' => 'Après check-in, seules les chambres et les suppléments peuvent être modifiés.',
                 ]);
             }
+
+            $roomSegments = $this->retainConsumedRoomSegments($reservation, $roomSegments);
         }
 
         $this->assertSegmentsDoNotOverlap($roomSegments);
@@ -339,8 +341,8 @@ class BookingService
 
         return DB::transaction(function () use ($reservation, $data, $roomIds, $isCheckedIn, $roomSegments, $hasCustomSegments) {
             $customerPhone = PhoneNumber::normalize($data['customer_phone'] ?? null);
-            $previousPrices = $reservation->rooms
-                ->mapWithKeys(fn (Room $room) => [$room->id => (int) $room->pivot->price_snapshot_ariary]);
+            $previousPivots = $reservation->rooms
+                ->mapWithKeys(fn (Room $room) => [$room->id => $this->pivotSnapshot($room)]);
             $previousRoomIds = $reservation->rooms->pluck('id')->map(fn ($id) => (int) $id)->sort()->values()->all();
             $newRoomIds = $roomSegments->pluck('room_id')->sort()->values()->all();
 
@@ -399,7 +401,7 @@ class BookingService
             }
 
             $reservation->update($updateData);
-            $this->syncRoomSegments($reservation, $roomSegments, $previousPrices);
+            $this->syncRoomSegments($reservation, $roomSegments, $previousPivots);
 
             if (!empty($changeSet)) {
                 ReservationAudit::create([
@@ -644,6 +646,93 @@ class BookingService
         }
     }
 
+    private function retainConsumedRoomSegments(Reservation $reservation, Collection $segments): Collection
+    {
+        $stayStart = Carbon::parse($reservation->check_in_date)->startOfDay();
+        $stayEnd = Carbon::parse($reservation->check_out_date)->startOfDay();
+        $cutoff = now()->startOfDay();
+
+        if ($cutoff->lte($stayStart)) {
+            return $segments;
+        }
+
+        if ($cutoff->gt($stayEnd)) {
+            $cutoff = $stayEnd;
+        }
+
+        $existingSegments = $reservation->rooms->map(fn (Room $room) => [
+            'room_id' => (int) $room->id,
+            'segment_start_date' => Carbon::parse($room->pivot->segment_start_date ?? $reservation->check_in_date)->toDateString(),
+            'segment_end_date' => Carbon::parse($room->pivot->segment_end_date ?? $reservation->check_out_date)->toDateString(),
+            'segment_extra_beds' => (int) ($room->pivot->segment_extra_beds ?? 0),
+            'segment_extra_mattresses' => (int) ($room->pivot->segment_extra_mattresses ?? 0),
+        ]);
+
+        $isUnchangedExistingSegment = function (array $segment) use ($existingSegments): bool {
+            return $existingSegments->contains(fn (array $existing) => (
+                (int) $segment['room_id'] === (int) $existing['room_id']
+                && Carbon::parse($segment['segment_start_date'])->toDateString() === $existing['segment_start_date']
+                && Carbon::parse($segment['segment_end_date'])->toDateString() === $existing['segment_end_date']
+                && (int) ($segment['segment_extra_beds'] ?? 0) === (int) $existing['segment_extra_beds']
+                && (int) ($segment['segment_extra_mattresses'] ?? 0) === (int) $existing['segment_extra_mattresses']
+            ));
+        };
+
+        $mutableSegments = $segments
+            ->map(function (array $segment) use ($cutoff, $isUnchangedExistingSegment) {
+                if ($isUnchangedExistingSegment($segment)) {
+                    return $segment;
+                }
+
+                $segmentStart = Carbon::parse($segment['segment_start_date'])->startOfDay();
+                $segmentEnd = Carbon::parse($segment['segment_end_date'])->startOfDay();
+
+                if ($segmentEnd->lte($cutoff)) {
+                    return null;
+                }
+
+                if ($segmentStart->lt($cutoff)) {
+                    $segment['segment_start_date'] = $cutoff->toDateString();
+                }
+
+                return $segment;
+            })
+            ->filter()
+            ->values();
+
+        $retainedSegments = collect();
+
+        foreach ($reservation->rooms as $room) {
+            $segmentStart = Carbon::parse($room->pivot->segment_start_date ?? $reservation->check_in_date)->startOfDay();
+            $segmentEnd = Carbon::parse($room->pivot->segment_end_date ?? $reservation->check_out_date)->startOfDay();
+            $consumedEnd = $segmentEnd->lt($cutoff) ? $segmentEnd : $cutoff;
+            $existingSegment = [
+                'room_id' => (int) $room->id,
+                'segment_start_date' => $segmentStart->toDateString(),
+                'segment_end_date' => $segmentEnd->toDateString(),
+                'segment_extra_beds' => (int) ($room->pivot->segment_extra_beds ?? 0),
+                'segment_extra_mattresses' => (int) ($room->pivot->segment_extra_mattresses ?? 0),
+            ];
+
+            if ($segmentStart->gte($consumedEnd) || $segments->contains(fn (array $segment) => $isUnchangedExistingSegment($segment) && (int) $segment['room_id'] === (int) $existingSegment['room_id'])) {
+                continue;
+            }
+
+            $retainedSegments->push([
+                ...$existingSegment,
+                'segment_end_date' => $consumedEnd->toDateString(),
+            ]);
+        }
+
+        if ($retainedSegments->isEmpty()) {
+            return $mutableSegments;
+        }
+
+        return $retainedSegments
+            ->concat($mutableSegments)
+            ->values();
+    }
+
     private function conflictingRoomNumbersForSegments(Collection $segments, ?int $excludeReservationId = null): Collection
     {
         $conflicts = collect();
@@ -672,7 +761,27 @@ class BookingService
         return $conflicts->unique()->sort()->values();
     }
 
-    private function syncRoomSegments(Reservation $reservation, Collection $segments, Collection $previousPrices): void
+    private function pivotSnapshot(Room $room): array
+    {
+        return [
+            'price_snapshot_ariary' => (int) ($room->pivot->price_snapshot_ariary ?? $room->base_price_ariary),
+            'occupant_name' => $room->pivot->occupant_name,
+            'occupant_phone' => $room->pivot->occupant_phone,
+            'occupant_email' => $room->pivot->occupant_email,
+            'occupant_date_of_birth' => optional($room->pivot->occupant_date_of_birth)->toDateString(),
+            'occupant_sex' => $room->pivot->occupant_sex,
+            'occupant_id_type' => $room->pivot->occupant_id_type,
+            'occupant_id_number' => $room->pivot->occupant_id_number,
+            'occupant_passport_valid_from' => optional($room->pivot->occupant_passport_valid_from)->toDateString(),
+            'occupant_passport_valid_until' => optional($room->pivot->occupant_passport_valid_until)->toDateString(),
+            'checked_in_at' => optional($room->pivot->checked_in_at)->toDateTimeString(),
+            'checked_in_by_name' => $room->pivot->checked_in_by_name,
+            'checked_in_by_role' => $room->pivot->checked_in_by_role,
+            'invoice_id' => $room->pivot->invoice_id,
+        ];
+    }
+
+    private function syncRoomSegments(Reservation $reservation, Collection $segments, Collection $previousPivots): void
     {
         $existingIds = $reservation->rooms->pluck('id')->map(fn ($id) => (int) $id)->all();
         $segmentRoomIds = $segments->pluck('room_id')->map(fn ($id) => (int) $id)->all();
@@ -693,9 +802,10 @@ class BookingService
 
             $price = $reservation->source === 'Booking'
                 ? self::BOOKING_ROOM_PRICE_ARIARY
-                : $previousPrices->get($roomId, $room->base_price_ariary);
+                : (int) ($previousPivots->get($roomId)['price_snapshot_ariary'] ?? $room->base_price_ariary);
 
             $reservation->rooms()->attach($roomId, [
+                ...($previousPivots->get($roomId) ?? []),
                 'price_snapshot_ariary' => $price,
                 'segment_start_date' => $segment['segment_start_date'],
                 'segment_end_date' => $segment['segment_end_date'],

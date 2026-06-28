@@ -35,8 +35,9 @@ class ClientProfile {
     final name = fullName.trim();
     if (name.isNotEmpty) return name;
     return [firstName, lastName]
-        .where((part) => part != null && part!.trim().isNotEmpty)
-        .map((part) => part!.trim())
+        .whereType<String>()
+        .map((part) => part.trim())
+        .where((part) => part.isNotEmpty)
         .join(' ');
   }
 
@@ -49,7 +50,8 @@ class ClientProfile {
   String get searchLabel => '$displayName - ID: $displayDocumentNumber';
 
   String get dedupKey {
-    final name = _normalize(fullName) ??
+    final name =
+        _normalize(fullName) ??
         [
           _normalize(firstName),
           _normalize(lastName),

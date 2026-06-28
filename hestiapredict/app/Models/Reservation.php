@@ -70,6 +70,8 @@ class Reservation extends Model
                 'occupant_sex',
                 'occupant_id_type',
                 'occupant_id_number',
+                'occupant_passport_valid_from',
+                'occupant_passport_valid_until',
                 'checked_in_at',
                 'checked_in_by_name',
                 'checked_in_by_role',

@@ -1337,6 +1337,28 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
   }
 
   Future<void> _updateStatus(dynamic id, String newStatus) async {
+    if (newStatus == 'annule') {
+      Map<String, dynamic>? reservation;
+      for (final item in _reservations) {
+        if (item is Map && _asInt(item['id']) == _asInt(id)) {
+          reservation = Map<String, dynamic>.from(item);
+          break;
+        }
+      }
+
+      if (reservation != null && !_canCancelReservation(reservation)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Après check-in, seul un administrateur peut annuler.',
+            ),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+    }
+
     try {
       final response = await http.post(
         Uri.parse('$baseUrl/api/bookings/update-status'),
@@ -1374,11 +1396,14 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
           ),
         );
       } else {
+        final decoded = response.body.isNotEmpty
+            ? json.decode(response.body)
+            : null;
+        final message = decoded is Map && decoded['message'] != null
+            ? decoded['message'].toString()
+            : 'Erreur ${response.statusCode}';
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erreur ${response.statusCode}'),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text(message), backgroundColor: Colors.red),
         );
       }
     } catch (e) {
@@ -1396,6 +1421,20 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
   bool _canEditReservation(Map<String, dynamic> reservation) {
     final status = (reservation['status'] ?? '').toString();
     return status == 'en_attente' || status == 'arrive';
+  }
+
+  bool _canCancelReservation(Map<String, dynamic> reservation) {
+    final status = (reservation['status'] ?? '').toString();
+    return widget.role != 'receptionist' || status != 'arrive';
+  }
+
+  bool _shouldShowStatusControls(Map<String, dynamic> reservation) {
+    final status = (reservation['status'] ?? '').toString();
+    if (status == 'arrive') {
+      return _canCancelReservation(reservation);
+    }
+
+    return status != 'annule';
   }
 
   Future<void> _openEditReservation(Map<String, dynamic> reservation) async {
@@ -1990,6 +2029,9 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                         displayedReservations[index] as Map,
                       );
                       final canEdit = _canEditReservation(res);
+                      final status = (res['status'] ?? '').toString();
+                      final isPostCheckIn = status == 'arrive';
+                      final showStatusControls = _shouldShowStatusControls(res);
                       final paymentStatus =
                           (res['payment_status'] ?? 'unbilled').toString();
                       return Card(
@@ -2014,18 +2056,14 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                                       ),
                                     ),
                                   ),
-                                  if ((res['status'] ?? '').toString() !=
-                                      'annule')
+                                  if (status != 'annule')
                                     IconButton(
-                                      tooltip:
-                                          (res['status'] ?? '').toString() ==
-                                              'arrive'
+                                      tooltip: isPostCheckIn
                                           ? 'Facture'
                                           : 'Acompte',
                                       onPressed: () => _openFolio(res),
                                       icon: Icon(
-                                        (res['status'] ?? '').toString() ==
-                                                'arrive'
+                                        isPostCheckIn
                                             ? Icons.receipt_long_outlined
                                             : Icons.savings_outlined,
                                       ),
@@ -2033,11 +2071,15 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                                     ),
                                   if (canEdit)
                                     IconButton(
-                                      tooltip: 'Modifier la réservation',
+                                      tooltip: isPostCheckIn
+                                          ? 'Changer chambre/options'
+                                          : 'Modifier la réservation',
                                       onPressed: () =>
                                           _openEditReservation(res),
-                                      icon: const Icon(
-                                        Icons.edit_calendar_outlined,
+                                      icon: Icon(
+                                        isPostCheckIn
+                                            ? Icons.swap_horiz_outlined
+                                            : Icons.edit_calendar_outlined,
                                       ),
                                       color: _primaryDark,
                                     ),
@@ -2288,48 +2330,48 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                                       ),
                                     ),
                                   ),
-                                  const SizedBox(width: 10),
-                                  _ReservationStatusPills(
-                                    status: (res['status'] ?? '').toString(),
-                                    showCancel:
-                                        widget.role != 'receptionist' ||
-                                        (res['status'] ?? '').toString() !=
-                                            'arrive',
-                                    onChanged: (val) async {
-                                      if (val == 'arrive') {
-                                        final result =
-                                            await Navigator.push<bool>(
-                                              context,
-                                              MaterialPageRoute(
-                                                builder: (_) => CheckInPage(
-                                                  reservation:
-                                                      Reservation.fromJson(
-                                                        Map<
-                                                          String,
-                                                          dynamic
-                                                        >.from(res),
-                                                      ),
-                                                  userName: widget.userName,
-                                                  role: widget.role,
+                                  if (showStatusControls) ...[
+                                    const SizedBox(width: 10),
+                                    _ReservationStatusPills(
+                                      status: status,
+                                      showCancel: _canCancelReservation(res),
+                                      showProgressActions: !isPostCheckIn,
+                                      onChanged: (val) async {
+                                        if (val == 'arrive') {
+                                          final result =
+                                              await Navigator.push<bool>(
+                                                context,
+                                                MaterialPageRoute(
+                                                  builder: (_) => CheckInPage(
+                                                    reservation:
+                                                        Reservation.fromJson(
+                                                          Map<
+                                                            String,
+                                                            dynamic
+                                                          >.from(res),
+                                                        ),
+                                                    userName: widget.userName,
+                                                    role: widget.role,
+                                                  ),
                                                 ),
-                                              ),
-                                            );
-                                        if (result == true) {
-                                          _fetchReservations();
+                                              );
+                                          if (result == true) {
+                                            _fetchReservations();
+                                          }
+                                        } else if (val == 'annule') {
+                                          setState(() {
+                                            res['status'] = val;
+                                          });
+                                          _updateStatus(res['id'], val);
+                                        } else {
+                                          setState(() {
+                                            res['status'] = val;
+                                          });
+                                          _updateStatus(res['id'], val);
                                         }
-                                      } else if (val == 'annule') {
-                                        setState(() {
-                                          res['status'] = val;
-                                        });
-                                        _updateStatus(res['id'], val);
-                                      } else {
-                                        setState(() {
-                                          res['status'] = val;
-                                        });
-                                        _updateStatus(res['id'], val);
-                                      }
-                                    },
-                                  ),
+                                      },
+                                    ),
+                                  ],
                                 ],
                               ),
                               const SizedBox(height: 8),
@@ -2418,11 +2460,13 @@ class _ReservationStatusPills extends StatelessWidget {
   const _ReservationStatusPills({
     required this.status,
     required this.showCancel,
+    required this.showProgressActions,
     required this.onChanged,
   });
 
   final String status;
   final bool showCancel;
+  final bool showProgressActions;
   final ValueChanged<String> onChanged;
 
   @override
@@ -2439,19 +2483,21 @@ class _ReservationStatusPills extends StatelessWidget {
       runSpacing: 6,
       alignment: WrapAlignment.end,
       children: [
-        _StatusChoiceChip(
-          label: 'En attente',
-          selected: normalized == 'en_attente',
-          onSelected: () => onChanged('en_attente'),
-        ),
-        _StatusChoiceChip(
-          label: 'Check-in',
-          selected: normalized == 'arrive',
-          onSelected: () => onChanged('arrive'),
-        ),
+        if (showProgressActions) ...[
+          _StatusChoiceChip(
+            label: 'En attente',
+            selected: normalized == 'en_attente',
+            onSelected: () => onChanged('en_attente'),
+          ),
+          _StatusChoiceChip(
+            label: 'Check-in',
+            selected: normalized == 'arrive',
+            onSelected: () => onChanged('arrive'),
+          ),
+        ],
         if (showCancel)
           _StatusChoiceChip(
-            label: 'Annulé',
+            label: normalized == 'arrive' ? 'Annuler' : 'Annulé',
             selected: normalized == 'annule',
             onSelected: () => onChanged('annule'),
           ),

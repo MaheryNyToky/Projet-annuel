@@ -1,16 +1,16 @@
 import 'dart:convert';
-import 'dart:html' as html;
 
 import '../models/app_user.dart';
+import 'package:web/web.dart' as web;
 
-String? readSessionValue(String key) => html.window.sessionStorage[key];
+String? readSessionValue(String key) => web.window.sessionStorage.getItem(key);
 
 void writeSessionValue(String key, String value) {
-  html.window.sessionStorage[key] = value;
+  web.window.sessionStorage.setItem(key, value);
 }
 
 void clearSessionValue(String key) {
-  html.window.sessionStorage.remove(key);
+  web.window.sessionStorage.removeItem(key);
 }
 
 String appUserToJson(AppUser user) => json.encode(user.toJson());

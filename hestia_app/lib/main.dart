@@ -1312,7 +1312,7 @@ class _ReceptionDashboardContent extends StatelessWidget {
       key: const ValueKey('grid'),
       padding: const EdgeInsets.fromLTRB(0, 0, 0, 96),
       itemCount: groupedCategories.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 22),
+      separatorBuilder: (context, index) => const SizedBox(height: 22),
       itemBuilder: (context, groupIndex) {
         final group = groupedCategories[groupIndex];
         return Column(
@@ -2061,25 +2061,26 @@ class _NewBookingPageState extends State<NewBookingPage> {
             builder: (context, setDialogState) => Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                RadioListTile<String>(
-                  title: const Text('Particulier'),
-                  value: 'individual',
+                RadioGroup<String>(
                   groupValue: choice,
                   onChanged: (value) {
                     if (value != null) {
                       setDialogState(() => choice = value);
                     }
                   },
-                ),
-                RadioListTile<String>(
-                  title: const Text('Organisme'),
-                  value: 'organization',
-                  groupValue: choice,
-                  onChanged: (value) {
-                    if (value != null) {
-                      setDialogState(() => choice = value);
-                    }
-                  },
+                  child: const Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      RadioListTile<String>(
+                        title: Text('Particulier'),
+                        value: 'individual',
+                      ),
+                      RadioListTile<String>(
+                        title: Text('Organisme'),
+                        value: 'organization',
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -2756,7 +2757,7 @@ class _NewBookingPageState extends State<NewBookingPage> {
             ),
             const SizedBox(height: 10),
             DropdownButtonFormField<int>(
-              value: draft.roomId,
+              initialValue: draft.roomId,
               decoration: const InputDecoration(
                 labelText: 'Chambre du segment',
                 border: OutlineInputBorder(),
