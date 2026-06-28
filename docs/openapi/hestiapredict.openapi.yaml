@@ -425,6 +425,34 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Invoice"
+  /reservations/{id}/manual-checkout:
+    post:
+      tags: [PMS]
+      summary: Libère manuellement une chambre après check-in
+      operationId: manualCheckout
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                checked_out_by_name:
+                  type: string
+                checked_out_by_role:
+                  type: string
+                  enum: [admin, receptionist, superadmin]
+      responses:
+        "200":
+          description: Check-out manuel enregistré.
+        "422":
+          description: Réservation non éligible au check-out manuel.
   /reservations/{id}/deposit:
     post:
       tags: [PMS]
@@ -949,7 +977,7 @@ components:
           example: RES-A1B2C3
         status:
           type: string
-          enum: [en_attente, arrive, arrive_paid, arrive_unpaid, annule]
+          enum: [en_attente, arrive, arrive_paid, arrive_unpaid, check_out_manuel, annule]
           example: arrive
         cancelled_by_name:
           type: string
@@ -1017,7 +1045,7 @@ components:
           example: "2026-07-03"
         status:
           type: string
-          enum: [en_attente, arrive, annule]
+          enum: [en_attente, arrive, check_out_manuel, annule]
         payment_status:
           type: string
           example: unbilled

@@ -7,6 +7,7 @@ Elle sert d'interface de réception pour :
 - les réservations ;
 - les check-in ;
 - les folios et paiements ;
+- le check-out manuel depuis le folio pour libérer une chambre avant la date de départ ;
 - la consultation des disponibilités ;
 - l'affichage des compteurs et listes métiers avec rafraîchissement plus fiable des statuts `en_attente` et des occupations confirmées ;
 - la saisie d'acomptes avec protection contre les doubles envois pendant la validation ;

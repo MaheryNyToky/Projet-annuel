@@ -18,6 +18,7 @@ L'application est composée de trois parties :
     - **Auto-complétion et Fidélité client** : Recherche intelligente de clients existants (nom, téléphone, pièce d'identité) avec pré-remplissage automatique des formulaires de réservation et de check-in, et suivi du nombre de visites (compteur de fidélité incrémenté à chaque paiement).
     - **Check-in client** : Prise de photo d'identité (via `image_picker`), enregistrement des informations légales, auto-complétion des données des clients réguliers, et passage automatique du statut à `arrive`. Auparavant appelé "Arrivé", le bouton et le processus ont été renommés "Check-in" pour plus de clarté.
     - **Gestion des Folios** : Facturation détaillée par réservation avec ajout d'extras (lits, matelas, consommations) et de remises. Auparavant, la taxe de séjour s'affichait comme un item standard, elle est désormais extraite de la liste principale. L'accès au folio a également été sécurisé : il n'est plus accessible qu'après le check-in, sauf pour les administrateurs.
+    - **Check-out manuel** : depuis le folio, la réception peut libérer immédiatement une chambre sans modifier la facture. Le séjour passe alors au statut spécifique `check_out_manuel` et l'action est tracée avec l'utilisateur qui l'a validée.
     - **Suivi des paiements** : Multi-modes (espèces, carte, mobile money) avec gestion des paiements partiels et soldes.
     - **Documents PDF** : Génération de factures professionnelles au format PDF (via `dompdf`) avec une mise en page compacte pensée pour tenir sur une page dans le cas standard, tout en restant lisible et partageable depuis Flutter.
 - Gestion des extras (lits supplémentaires, matelas).
@@ -25,7 +26,7 @@ L'application est composée de trois parties :
 - Recherche et filtrage avancé des réservations.
 - **Accès historique sécurisé** : Les administrateurs peuvent consulter l'historique complet, tandis que le staff est limité aux réservations futures et présentes.
 - Création de réservations multi-chambres avec capture du prix au moment de la vente (`price_snapshot`).
-- Gestion des statuts : `en_attente`, `arrive` (payé/partiel/non payé), `annule`.
+- Gestion des statuts : `en_attente`, `arrive` (payé/partiel/non payé), `check_out_manuel`, `annule`.
 - Moteur IA basé sur **Facebook Prophet** pour les prévisions d'occupation et suggestions de prix dynamiques.
 - Documentation OpenAPI complète pour les deux backends.
 - Tests automatisés Laravel (Feature/Unit), FastAPI et Flutter.
@@ -217,6 +218,7 @@ Ce vous devez vérifier :
 - connexion avec `admin@kamorohotel.com` / `admin123` ou `reco1@kamorohotel.com` / `reco123` ;
 - création et modification de réservation ;
 - check-in d'une réservation ;
+- check-out manuel d'une réservation déjà arrivée ;
 - consultation du folio et des paiements ;
 - affichage des disponibilités et des suggestions de yield.
 

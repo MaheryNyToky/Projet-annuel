@@ -89,6 +89,7 @@ Champs principaux :
 | --- | --- | --- |
 | `en_attente` | Réservation en attente / prévisionnelle | Oui |
 | `arrive` | Client arrivé / réservation confirmée. Peut être passé via `arrive_paid` ou `arrive_unpaid` pour définir le statut de paiement simultanément. | Oui |
+| `check_out_manuel` | Chambre libérée manuellement après check-in. Le séjour reste historisé mais ne compte plus pour l'occupation. | Non |
 | `annule` | Réservation annulée | Non |
 
 Les calculs de disponibilité utilisent `en_attente` et `arrive`.
@@ -483,6 +484,7 @@ Ces endpoints gèrent le check-in, la facturation et les paiements.
 | --- | --- | --- |
 | `GET` | `/clients/search` | Recherche un profil client par nom, prénom, téléphone ou pièce d'identité (auto-complétion). |
 | `POST` | `/reservations/{id}/checkin` | Enregistre un client (guest) pour une réservation, incrémente sa fidélité et met à jour le statut à `arrive`. Le folio est créé à la première consultation de `/reservations/{id}/folio`. |
+| `POST` | `/reservations/{id}/manual-checkout` | Libère manuellement une chambre après check-in, sans modifier la facture. Le statut passe à `check_out_manuel` et l'action est historisée avec l'utilisateur validateur. |
 | `POST` | `/reservations/{id}/deposit` | Enregistre un acompte sur la réservation, met à jour le folio et régénère le PDF de facture. |
 | `GET` | `/reservations/{id}/folio` | Récupère la facture (folio) associée à une réservation, avec le détail des lignes et des paiements. |
 | `POST` | `/invoices/{id}/items` | Ajoute un élément à la facture (type: `room`, `extra`, `deposit`). |
@@ -513,6 +515,25 @@ Payload :
   "id_photo": "(file binary)"
 }
 ```
+
+#### `POST /reservations/{id}/manual-checkout`
+
+Libère la chambre sans modifier le folio. L'action n'est autorisée qu'après check-in.
+
+Payload :
+```json
+{
+  "checked_out_by_name": "Réception Test",
+  "checked_out_by_role": "receptionist"
+}
+```
+
+Réponses :
+
+| Code | Cas |
+| --- | --- |
+| `200` | Check-out manuel enregistré |
+| `422` | Réservation non éligible au check-out manuel |
 
 #### `POST /invoices/{id}/generate-pdf`
 
