@@ -22,6 +22,7 @@ COPY hestiapredict/composer.json hestiapredict/composer.lock ./
 RUN composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader --no-scripts
 
 COPY hestiapredict/ ./
+RUN cp "Capture d’écran 2026-06-16 à 18.13.53.png" public/logo.png
 RUN composer dump-autoload --optimize \
     && mkdir -p storage/logs storage/framework/cache storage/framework/sessions storage/framework/views bootstrap/cache \
     && chmod -R 775 storage bootstrap/cache
