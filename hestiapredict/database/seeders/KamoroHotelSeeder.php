@@ -12,16 +12,6 @@ class KamoroHotelSeeder extends Seeder
     public function run(): void
     {
         User::updateOrCreate(
-            ['email' => 'reco1@kamorohotel.com'],
-            ['name' => 'Mahery Réception', 'password' => Hash::make('reco123'), 'role' => 'receptionist']
-        );
-
-        User::updateOrCreate(
-            ['email' => 'admin@kamorohotel.com'],
-            ['name' => 'Directeur Kamoro', 'password' => Hash::make('admin123'), 'role' => 'admin']
-        );
-
-        User::updateOrCreate(
             ['email' => 'superadmin@kamorohotel.com'],
             ['name' => 'Super Admin Kamoro', 'password' => Hash::make('super181802'), 'role' => 'superadmin']
         );
