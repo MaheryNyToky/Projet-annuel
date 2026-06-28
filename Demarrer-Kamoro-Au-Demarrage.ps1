@@ -21,32 +21,6 @@ function Write-Log {
     Add-Content -Path $LogFile -Value "[$Timestamp] $Message"
 }
 
-function Invoke-GitPullWithTimeout {
-    param(
-        [int]$TimeoutSeconds = 15
-    )
-
-    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-        throw "Git n'est pas disponible dans le PATH."
-    }
-
-    $PreviousErrorActionPreference = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
-
-    try {
-        $Output = & git pull --autostash --ff-only origin main 2>&1 | Out-String
-        $ExitCode = $LASTEXITCODE
-    } finally {
-        $ErrorActionPreference = $PreviousErrorActionPreference
-    }
-
-    return [pscustomobject]@{
-        TimedOut = $false
-        ExitCode = $ExitCode
-        Output = $Output.Trim()
-    }
-}
-
 function Get-DockerExecutable {
     $docker = Get-Command docker -ErrorAction SilentlyContinue
     if ($docker) {
@@ -244,25 +218,10 @@ try {
 
     $OwnsMutex = $true
 
-    Write-Log "Mise a jour du depot local..."
-    try {
-        $PullResult = Invoke-GitPullWithTimeout -TimeoutSeconds 15
-        if ($PullResult.TimedOut) {
-            Write-Log "Timeout git apres 15 secondes. On continue avec le depot local courant."
-        } elseif ($PullResult.ExitCode -eq 0) {
-            Write-Log "Depot local synchronise avec origin/main."
-        } else {
-            Write-Log "Echec du git pull avec le code $($PullResult.ExitCode). On continue avec le depot local courant."
-        }
-    } catch {
-        Write-Log "Impossible de mettre a jour le depot local: $($_.Exception.Message). On continue avec le depot local courant."
-    }
-
+    Write-Log "Lancement a partir de la copie locale courante."
     if (Test-AppPortOpen) {
-        Write-Log "Une instance repond deja sur 127.0.0.1:8080. Le lanceur va la remplacer par la version locale courante."
+        Write-Log "Une instance repond deja sur 127.0.0.1:8080. Le lanceur va la remplacer."
     }
-
-    Write-Log "Le lanceur tente une courte mise a jour Git au demarrage, puis continue avec la copie locale si besoin."
 
     Write-Log "Attente de Docker Desktop..."
     $DockerExe = Get-DockerExecutable

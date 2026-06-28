@@ -5,8 +5,7 @@ cd /d "%~dp0"
 
 echo.
 echo Lancement de Kamoro Reservation Facturation...
-echo Le lanceur attend jusqu'a 15 secondes pour joindre le depot distant.
-echo Si le depot n'est pas joignable, il continue avec la copie locale actuelle.
+echo Le lanceur utilise la copie locale du depot et reconstruit l'application si besoin.
 echo.
 
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0Demarrer-Kamoro-Au-Demarrage.ps1"

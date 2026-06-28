@@ -8,9 +8,13 @@ RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.l
         git \
         unzip \
         libicu-dev \
+        libpng-dev \
+        libjpeg62-turbo-dev \
+        libfreetype6-dev \
         libsqlite3-dev \
         libzip-dev \
-    && docker-php-ext-install intl pdo_sqlite zip \
+    && docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-install intl pdo_sqlite zip gd \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl --retry 5 --retry-all-errors --connect-timeout 30 -fsSL \
@@ -19,10 +23,14 @@ RUN curl --retry 5 --retry-all-errors --connect-timeout 30 -fsSL \
     && rm /tmp/composer-setup.php
 
 COPY hestiapredict/composer.json hestiapredict/composer.lock ./
-RUN composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader --no-scripts
+RUN composer install --no-dev --no-interaction --prefer-source --optimize-autoloader --no-scripts
 
+COPY *.png ./
 COPY hestiapredict/ ./
-RUN cp "Capture d’écran 2026-06-16 à 18.13.53.png" public/logo.png
+RUN set -eux; \
+    logo="$(find . -maxdepth 1 -type f -name '*.png' | head -n 1)"; \
+    test -n "$logo"; \
+    cp "$logo" public/logo.png
 RUN composer dump-autoload --optimize \
     && mkdir -p storage/logs storage/framework/cache storage/framework/sessions storage/framework/views bootstrap/cache \
     && chmod -R 775 storage bootstrap/cache
