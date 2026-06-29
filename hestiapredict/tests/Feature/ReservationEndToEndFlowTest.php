@@ -570,6 +570,108 @@ class ReservationEndToEndFlowTest extends TestCase
         $masterFolio->assertJsonPath('total_amount_ariary', 285000);
     }
 
+    public function test_post_checkin_room_option_update_keeps_all_grouped_room_lines(): void
+    {
+        $user = $this->createReceptionUser();
+        $room1 = $this->createRoom('01');
+        $room2 = $this->createRoom('02', 125000);
+
+        $this->createReservation([
+            'client_name' => 'Client Deux Chambres',
+            'customer_phone' => '0349000015',
+            'customer_email' => 'client-deux-chambres@example.com',
+            'check_in' => '2026-07-30',
+            'check_out' => '2026-07-31',
+            'room_ids' => [$room1->id, $room2->id],
+            'room_segments' => [
+                [
+                    'room_id' => $room1->id,
+                    'segment_start_date' => '2026-07-30',
+                    'segment_end_date' => '2026-07-31',
+                    'segment_extra_beds' => 0,
+                    'segment_extra_mattresses' => 0,
+                ],
+                [
+                    'room_id' => $room2->id,
+                    'segment_start_date' => '2026-07-30',
+                    'segment_end_date' => '2026-07-31',
+                    'segment_extra_beds' => 0,
+                    'segment_extra_mattresses' => 0,
+                ],
+            ],
+            'room_prices' => [
+                ['id' => $room1->id, 'price' => 110000],
+                ['id' => $room2->id, 'price' => 125000],
+            ],
+            'source' => 'Appel',
+            'receptionist_name' => $user->name,
+        ]);
+
+        $reservation = Reservation::query()
+            ->where('client_name', 'Client Deux Chambres')
+            ->firstOrFail();
+
+        $this->postJson("/api/reservations/{$reservation->id}/checkin", [
+            'full_name' => 'Client Deux Chambres',
+            'customer_phone' => '0349000015',
+            'phone_number' => '0349000015',
+            'date_of_birth' => '1989-07-07',
+            'sex' => 'Homme',
+            'id_type' => 'CIN',
+            'id_number' => 'CIN-ROOM-001',
+            'id_document_number' => 'CIN-ROOM-001',
+            'checked_in_by_name' => $user->name,
+            'checked_in_by_role' => $user->role,
+        ])->assertOk();
+
+        $this->putJson("/api/reservations/{$reservation->id}", [
+            'room_ids' => [$room1->id, $room2->id],
+            'room_segments' => [
+                [
+                    'room_id' => $room1->id,
+                    'segment_start_date' => '2026-07-30',
+                    'segment_end_date' => '2026-07-31',
+                    'segment_extra_beds' => 0,
+                    'segment_extra_mattresses' => 1,
+                ],
+                [
+                    'room_id' => $room2->id,
+                    'segment_start_date' => '2026-07-30',
+                    'segment_end_date' => '2026-07-31',
+                    'segment_extra_beds' => 0,
+                    'segment_extra_mattresses' => 0,
+                ],
+            ],
+            'extra_beds' => 0,
+            'extra_mattresses' => 1,
+            'modified_by_name' => $user->name,
+            'modified_by_role' => $user->role,
+        ])->assertOk();
+
+        $folio = $this->getJson("/api/reservations/{$reservation->id}/folio")->assertOk();
+        $folio->assertJsonPath('total_amount_ariary', 265000);
+        $descriptions = collect($folio->json('items'))->pluck('description')->all();
+
+        $this->assertContains('Chambre 01 (double standard) - 1 nuit', $descriptions);
+        $this->assertContains('Chambre 02 (double standard) - 1 nuit', $descriptions);
+        $this->assertContains('Matelas supplémentaire - Chambre 01 (double standard) - 1 nuit', $descriptions);
+        $this->assertSame(3, count($descriptions));
+
+        $invoiceId = $folio->json('id');
+        $pdfResponse = $this->postJson("/api/invoices/{$invoiceId}/generate-pdf", [
+            'document_type' => 'facture',
+            'billing_mode' => 'grouped',
+            'currency_mode' => 'ariary',
+            'actor_role' => 'admin',
+        ])->assertOk();
+        $pdfResponse->assertJsonPath('invoice.total_amount_ariary', 265000);
+        $pdfDescriptions = collect($pdfResponse->json('invoice.items'))->pluck('description')->all();
+
+        $this->assertContains('Chambre 01 (double standard) - 1 nuit', $pdfDescriptions);
+        $this->assertContains('Chambre 02 (double standard) - 1 nuit', $pdfDescriptions);
+        $this->assertContains('Matelas supplémentaire - Chambre 01 (double standard) - 1 nuit', $pdfDescriptions);
+    }
+
     public function test_individual_invoice_uses_room_labels_without_guest_names(): void
     {
         $user = $this->createReceptionUser();
@@ -756,13 +858,15 @@ class ReservationEndToEndFlowTest extends TestCase
 
     private function createRoom(string $roomNumber, int $price = 110000): Room
     {
-        return Room::create([
-            'room_number' => $roomNumber,
-            'type' => 'Chambre Double',
-            'model' => 'Standard',
-            'base_price_ariary' => $price,
-            'is_fixed_price' => false,
-        ]);
+        return Room::updateOrCreate(
+            ['room_number' => $roomNumber],
+            [
+                'type' => 'Chambre Double',
+                'model' => 'Standard',
+                'base_price_ariary' => $price,
+                'is_fixed_price' => false,
+            ],
+        );
     }
 
     private function createReservation(array $payload): array

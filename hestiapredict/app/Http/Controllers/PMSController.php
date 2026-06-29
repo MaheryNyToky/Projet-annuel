@@ -1129,14 +1129,28 @@ class PMSController extends Controller
 
         $item = $this->generatedInvoiceItemQuery($invoice, 'room', $bookingRoomId)
             ->first();
-        $item ??= $this->generatedInvoiceItemQuery($invoice, 'room', null)
-            ->first();
         $item ??= InvoiceItem::withTrashed()
             ->where('invoice_id', $invoice->id)
             ->where('type', 'room')
             ->whereNull('created_by_role')
             ->whereNull('manual_override_at')
+            ->where('description', 'like', 'Chambre ' . $room->room_number . ' %')
+            ->orderBy('id')
             ->first();
+
+        $canReuseOnlyRoomLine = ($invoice->invoice_kind ?? 'master') === 'room'
+            || $reservation->rooms->count() <= 1;
+        if (! $item && $canReuseOnlyRoomLine) {
+            $item = $this->generatedInvoiceItemQuery($invoice, 'room', null)
+                ->first();
+            $item ??= InvoiceItem::withTrashed()
+                ->where('invoice_id', $invoice->id)
+                ->where('type', 'room')
+                ->whereNull('created_by_role')
+                ->whereNull('manual_override_at')
+                ->orderBy('id')
+                ->first();
+        }
         if ($item?->manual_override_at) {
             return;
         }
