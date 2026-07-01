@@ -135,6 +135,7 @@ class HotelManagementController extends Controller
             'organization_nif' => 'nullable|string|max:80',
             'organization_stat' => 'nullable|string|max:80',
             'organization_tax_id' => 'nullable|string|max:80',
+            'organization_arrival_mode' => 'nullable|string|in:same_time,separate',
             'billing_mode' => 'nullable|string|in:grouped,per_room',
             'check_in' => 'required|date',
             'check_out' => 'required|date|after:check_in',
@@ -155,13 +156,23 @@ class HotelManagementController extends Controller
             'receptionist_name' => 'nullable|string|max:120',
         ]);
 
-        $reservation = $this->bookingService->createBooking($validated);
+        $result = $this->bookingService->createBooking($validated);
+        $reservations = collect($result['reservations'] ?? []);
+        $primaryReservation = $result['primary_reservation'] ?? $reservations->first();
+        $references = $reservations
+            ->map(fn ($reservation) => $reservation->booking_reference ?? null)
+            ->filter()
+            ->values();
         $this->availabilityService->invalidateCaches();
 
         return response()->json([
             'status' => 'success',
-            'message' => 'Réservation enregistrée avec succès',
-            'reference' => $reservation->booking_reference,
+            'message' => $references->count() > 1
+                ? 'Réservations enregistrées avec succès'
+                : 'Réservation enregistrée avec succès',
+            'reference' => $primaryReservation?->booking_reference,
+            'references' => $references->all(),
+            'reservation_count' => $references->count(),
         ], 201);
     }
 

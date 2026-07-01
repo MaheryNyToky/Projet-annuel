@@ -1760,6 +1760,7 @@ class _NewBookingPageState extends State<NewBookingPage> {
   bool _savingBooking = false;
   bool _isBookingCom = false;
   bool _isOrganizationBooking = false;
+  String _organizationArrivalMode = 'same_time';
   ClientProfile? _selectedClient;
   OrganizationProfile? _selectedOrganization;
   bool _suppressSelectedClientReset = false;
@@ -2346,12 +2347,85 @@ class _NewBookingPageState extends State<NewBookingPage> {
     );
 
     if (!mounted || confirmed != true) return;
-    setState(() {
-      _isOrganizationBooking = choice == 'organization';
-      _selectedClient = null;
-      _selectedOrganization = null;
-    });
+    if (choice == 'organization') {
+      final arrivalMode = await _showOrganizationArrivalModeDialog();
+      if (!mounted || arrivalMode == null) return;
+      setState(() {
+        _isOrganizationBooking = true;
+        _organizationArrivalMode = arrivalMode;
+        _selectedClient = null;
+        _selectedOrganization = null;
+      });
+    } else {
+      setState(() {
+        _isOrganizationBooking = false;
+        _selectedClient = null;
+        _selectedOrganization = null;
+      });
+    }
     await _fetchData();
+  }
+
+  Future<String?> _showOrganizationArrivalModeDialog() async {
+    String choice = _organizationArrivalMode;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Arrivée de l’organisme'),
+        content: const Text(
+          'Les occupants arrivent-ils en même temps ou séparément ?',
+        ),
+        actions: [
+          StatefulBuilder(
+            builder: (context, setDialogState) => Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                RadioGroup<String>(
+                  groupValue: choice,
+                  onChanged: (value) {
+                    if (value != null) {
+                      setDialogState(() => choice = value);
+                    }
+                  },
+                  child: const Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      RadioListTile<String>(
+                        title: Text('En même temps'),
+                        subtitle: Text('Une seule réservation pour tout le groupe'),
+                        value: 'same_time',
+                      ),
+                      RadioListTile<String>(
+                        title: Text('Séparément'),
+                        subtitle: Text(
+                          'Une réservation par chambre avec le même organisme',
+                        ),
+                        value: 'separate',
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Valider'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) {
+      return null;
+    }
+
+    return choice;
   }
 
   void _applyClient(ClientProfile client) {
@@ -2723,6 +2797,9 @@ class _NewBookingPageState extends State<NewBookingPage> {
                   : null,
               'organization_stat': _isOrganizationBooking
                   ? _organizationStatController.text.trim()
+                  : null,
+              'organization_arrival_mode': _isOrganizationBooking
+                  ? _organizationArrivalMode
                   : null,
               'check_in': _checkIn.toIso8601String().substring(0, 10),
               'check_out': _checkOut.toIso8601String().substring(0, 10),

@@ -28,7 +28,7 @@ class BookingService
     ) {
     }
 
-    public function createBooking(array $data): Reservation
+    public function createBooking(array $data): array
     {
         return DB::transaction(function () use ($data) {
             $userId = null;
@@ -62,118 +62,185 @@ class BookingService
                     ],
                 );
             }
-            $customerPhone = PhoneNumber::normalize($data['customer_phone'] ?? null);
+            $arrivalMode = (string) ($data['organization_arrival_mode'] ?? 'same_time');
             $roomIds = collect($data['room_ids'] ?? [])
                 ->map(fn ($roomId) => (int) $roomId)
                 ->filter(fn (int $roomId) => $roomId > 0)
                 ->values();
             $roomSegments = $this->normalizeRoomSegments($data, $data['check_in'], $data['check_out'], $roomIds);
-            $hasCustomSegments = filled($data['room_segments'] ?? null);
 
-            $this->assertSegmentsDoNotOverlap($roomSegments);
-            $conflictingRoomNumbers = $this->conflictingRoomNumbersForSegments($roomSegments);
+            if ($organization && $arrivalMode === 'separate' && $roomSegments->count() > 1) {
+                $reservations = collect();
 
-            if ($conflictingRoomNumbers->isNotEmpty()) {
-                throw ValidationException::withMessages([
-                    'room_ids' => 'Chambre(s) déjà occupée(s) : ' . $conflictingRoomNumbers->implode(', '),
-                ]);
-            }
-
-            if ($source === 'Booking') {
-                $invalidBookingRoomNumbers = Room::query()
-                    ->whereIn('id', $roomSegments->pluck('room_id')->unique()->values())
-                    ->where(function ($query) {
-                        $query
-                            ->where('type', '!=', 'Chambre Double')
-                            ->orWhere('model', 'not like', '%Supérieure%');
-                    })
-                    ->orderBy('room_number')
-                    ->pluck('room_number');
-
-                if ($invalidBookingRoomNumbers->isNotEmpty()) {
-                    throw ValidationException::withMessages([
-                        'room_ids' => 'Booking est limité aux chambres doubles supérieures : ' . $invalidBookingRoomNumbers->implode(', '),
-                    ]);
+                foreach ($roomSegments as $segment) {
+                    $reservations->push(
+                        $this->createBookingReservation(
+                            $this->singleSegmentBookingPayload($data, $segment, $arrivalMode),
+                            $organization,
+                            $userId,
+                            $source,
+                            $billingMode,
+                        )
+                    );
                 }
+
+                return [
+                    'reservations' => $reservations,
+                    'primary_reservation' => $reservations->first(),
+                ];
             }
 
-            $this->assertExtraCapacityWithinLimit(
-                $data['check_in'],
-                $data['check_out'],
-                $hasCustomSegments
-                    ? $roomSegments->sum(fn (array $segment) => (int) ($segment['segment_extra_beds'] ?? 0))
-                    : (int) ($data['extra_beds'] ?? 0),
-                $hasCustomSegments
-                    ? $roomSegments->sum(fn (array $segment) => (int) ($segment['segment_extra_mattresses'] ?? 0))
-                    : (int) ($data['extra_mattresses'] ?? 0),
+            $reservation = $this->createBookingReservation(
+                [
+                    ...$data,
+                    'organization_arrival_mode' => $arrivalMode,
+                ],
+                $organization,
+                $userId,
+                $source,
+                $billingMode,
             );
 
-            $reservation = Reservation::query()->create([
-                'client_name' => $data['client_name'],
-                'client_phone' => $customerPhone ?? '000000000',
-                'customer_phone' => $customerPhone,
-                'customer_email' => $data['customer_email'] ?? null,
-                'organization_id' => $organization?->id,
-                'booking_reference' => 'RES-' . strtoupper(bin2hex(random_bytes(3))),
-                'booking_type' => $organization ? 'organization' : 'individual',
-                'billing_mode' => $billingMode,
-                'source' => $source,
-                'is_booking_com' => $source === 'Booking',
-                'check_in_date' => $data['check_in'],
-                'check_out_date' => $data['check_out'],
-                'status' => 'en_attente',
-                'payment_status' => 'unbilled',
-                'user_id' => $userId,
-                'extra_beds' => $hasCustomSegments
-                    ? $roomSegments->sum(fn (array $segment) => (int) ($segment['segment_extra_beds'] ?? 0))
-                    : (int) ($data['extra_beds'] ?? 0),
-                'extra_mattresses' => $hasCustomSegments
-                    ? $roomSegments->sum(fn (array $segment) => (int) ($segment['segment_extra_mattresses'] ?? 0))
-                    : (int) ($data['extra_mattresses'] ?? 0),
-            ]);
-
-            $providedPrices = collect($data['room_prices'] ?? [])
-                ->mapWithKeys(fn (array $roomPrice) => [$roomPrice['id'] => $roomPrice['price']]);
-
-            Room::query()
-                ->whereIn('id', $roomSegments->pluck('room_id')->unique()->values())
-                ->get()
-                ->each(function (Room $room) use ($reservation, $providedPrices, $source, $roomSegments) {
-                    $segment = $roomSegments->firstWhere('room_id', $room->id);
-                    $price = $source === 'Booking'
-                        ? self::BOOKING_ROOM_PRICE_ARIARY
-                        : ($room->is_fixed_price
-                            ? $room->base_price_ariary
-                            : $providedPrices->get($room->id, $room->base_price_ariary));
-
-                    $reservation->rooms()->attach($room->id, [
-                        'price_snapshot_ariary' => $price,
-                        'segment_start_date' => $segment['segment_start_date'] ?? $reservation->check_in_date,
-                        'segment_end_date' => $segment['segment_end_date'] ?? $reservation->check_out_date,
-                        'segment_extra_beds' => (int) ($segment['segment_extra_beds'] ?? 0),
-                        'segment_extra_mattresses' => (int) ($segment['segment_extra_mattresses'] ?? 0),
-                    ]);
-                });
-
-            ReservationAudit::create([
-                'reservation_id' => $reservation->id,
-                'action' => 'booked',
-                'actor_name' => $data['receptionist_name'] ?? null,
-                'actor_role' => 'receptionist',
-                'details' => [
-                    'room_ids' => $roomSegments->pluck('room_id')->all(),
-                    'room_segments' => $roomSegments->values()->all(),
-                    'check_in' => $data['check_in'],
-                    'check_out' => $data['check_out'],
-                    'source' => $source,
-                    'booking_type' => $reservation->booking_type,
-                    'billing_mode' => $reservation->billing_mode,
-                    'organization_name' => $organization?->name,
-                ],
-            ]);
-
-            return $reservation->load('rooms', 'organization');
+            return [
+                'reservations' => collect([$reservation]),
+                'primary_reservation' => $reservation,
+            ];
         });
+    }
+
+    private function createBookingReservation(
+        array $data,
+        ?Organization $organization,
+        ?int $userId,
+        string $source,
+        string $billingMode,
+    ): Reservation {
+        $customerPhone = PhoneNumber::normalize($data['customer_phone'] ?? null);
+        $roomIds = collect($data['room_ids'] ?? [])
+            ->map(fn ($roomId) => (int) $roomId)
+            ->filter(fn (int $roomId) => $roomId > 0)
+            ->values();
+        $roomSegments = $this->normalizeRoomSegments($data, $data['check_in'], $data['check_out'], $roomIds);
+        $hasCustomSegments = filled($data['room_segments'] ?? null);
+
+        $this->assertSegmentsDoNotOverlap($roomSegments);
+        $conflictingRoomNumbers = $this->conflictingRoomNumbersForSegments($roomSegments);
+
+        if ($conflictingRoomNumbers->isNotEmpty()) {
+            throw ValidationException::withMessages([
+                'room_ids' => 'Chambre(s) déjà occupée(s) : ' . $conflictingRoomNumbers->implode(', '),
+            ]);
+        }
+
+        if ($source === 'Booking') {
+            $invalidBookingRoomNumbers = Room::query()
+                ->whereIn('id', $roomSegments->pluck('room_id')->unique()->values())
+                ->where(function ($query) {
+                    $query
+                        ->where('type', '!=', 'Chambre Double')
+                        ->orWhere('model', 'not like', '%Supérieure%');
+                })
+                ->orderBy('room_number')
+                ->pluck('room_number');
+
+            if ($invalidBookingRoomNumbers->isNotEmpty()) {
+                throw ValidationException::withMessages([
+                    'room_ids' => 'Booking est limité aux chambres doubles supérieures : ' . $invalidBookingRoomNumbers->implode(', '),
+                ]);
+            }
+        }
+
+        $this->assertExtraCapacityWithinLimit(
+            $data['check_in'],
+            $data['check_out'],
+            $hasCustomSegments
+                ? $roomSegments->sum(fn (array $segment) => (int) ($segment['segment_extra_beds'] ?? 0))
+                : (int) ($data['extra_beds'] ?? 0),
+            $hasCustomSegments
+                ? $roomSegments->sum(fn (array $segment) => (int) ($segment['segment_extra_mattresses'] ?? 0))
+                : (int) ($data['extra_mattresses'] ?? 0),
+        );
+
+        $reservation = Reservation::query()->create([
+            'client_name' => $data['client_name'],
+            'client_phone' => $customerPhone ?? '000000000',
+            'customer_phone' => $customerPhone,
+            'customer_email' => $data['customer_email'] ?? null,
+            'organization_id' => $organization?->id,
+            'booking_reference' => 'RES-' . strtoupper(bin2hex(random_bytes(3))),
+            'booking_type' => $organization ? 'organization' : 'individual',
+            'billing_mode' => $billingMode,
+            'source' => $source,
+            'is_booking_com' => $source === 'Booking',
+            'check_in_date' => $data['check_in'],
+            'check_out_date' => $data['check_out'],
+            'status' => 'en_attente',
+            'payment_status' => 'unbilled',
+            'user_id' => $userId,
+            'extra_beds' => $hasCustomSegments
+                ? $roomSegments->sum(fn (array $segment) => (int) ($segment['segment_extra_beds'] ?? 0))
+                : (int) ($data['extra_beds'] ?? 0),
+            'extra_mattresses' => $hasCustomSegments
+                ? $roomSegments->sum(fn (array $segment) => (int) ($segment['segment_extra_mattresses'] ?? 0))
+                : (int) ($data['extra_mattresses'] ?? 0),
+        ]);
+
+        $providedPrices = collect($data['room_prices'] ?? [])
+            ->mapWithKeys(fn (array $roomPrice) => [$roomPrice['id'] => $roomPrice['price']]);
+
+        Room::query()
+            ->whereIn('id', $roomSegments->pluck('room_id')->unique()->values())
+            ->get()
+            ->each(function (Room $room) use ($reservation, $providedPrices, $source, $roomSegments) {
+                $segment = $roomSegments->firstWhere('room_id', $room->id);
+                $price = $source === 'Booking'
+                    ? self::BOOKING_ROOM_PRICE_ARIARY
+                    : ($room->is_fixed_price
+                        ? $room->base_price_ariary
+                        : $providedPrices->get($room->id, $room->base_price_ariary));
+
+                $reservation->rooms()->attach($room->id, [
+                    'price_snapshot_ariary' => $price,
+                    'segment_start_date' => $segment['segment_start_date'] ?? $reservation->check_in_date,
+                    'segment_end_date' => $segment['segment_end_date'] ?? $reservation->check_out_date,
+                    'segment_extra_beds' => (int) ($segment['segment_extra_beds'] ?? 0),
+                    'segment_extra_mattresses' => (int) ($segment['segment_extra_mattresses'] ?? 0),
+                ]);
+            });
+
+        ReservationAudit::create([
+            'reservation_id' => $reservation->id,
+            'action' => 'booked',
+            'actor_name' => $data['receptionist_name'] ?? null,
+            'actor_role' => 'receptionist',
+            'details' => [
+                'room_ids' => $roomSegments->pluck('room_id')->all(),
+                'room_segments' => $roomSegments->values()->all(),
+                'check_in' => $data['check_in'],
+                'check_out' => $data['check_out'],
+                'source' => $source,
+                'booking_type' => $reservation->booking_type,
+                'billing_mode' => $reservation->billing_mode,
+                'organization_name' => $organization?->name,
+                'organization_arrival_mode' => $data['organization_arrival_mode'] ?? 'same_time',
+            ],
+        ]);
+
+        return $reservation->load('rooms', 'organization');
+    }
+
+    private function singleSegmentBookingPayload(array $data, array $segment, string $arrivalMode): array
+    {
+        return [
+            ...$data,
+            'check_in' => $segment['segment_start_date'] ?? $data['check_in'],
+            'check_out' => $segment['segment_end_date'] ?? $data['check_out'],
+            'room_ids' => [$segment['room_id']],
+            'room_segments' => [$segment],
+            'extra_beds' => (int) ($segment['segment_extra_beds'] ?? 0),
+            'extra_mattresses' => (int) ($segment['segment_extra_mattresses'] ?? 0),
+            'organization_arrival_mode' => $arrivalMode,
+        ];
     }
 
     public function updateStatus(array $data): ?Reservation
