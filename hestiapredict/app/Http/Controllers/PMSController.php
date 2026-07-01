@@ -280,7 +280,7 @@ class PMSController extends Controller
                 $reservation,
                 $groupReservationIds,
             );
-            if ($groupReservations->count() > 1) {
+            if ($groupReservations->isNotEmpty()) {
                 $invoice = $this->ensureOpenFolio($reservation);
                 $this->syncGroupedReservationFolio($invoice, $groupReservations);
 

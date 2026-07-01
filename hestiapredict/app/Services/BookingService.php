@@ -840,8 +840,10 @@ class BookingService
                         ->orWhereHas('invoice', fn ($invoiceQuery) => $invoiceQuery->where('status', 'paid'));
                 });
             })
+            ->orderBy('check_in_date')
+            ->orderBy('created_at')
             ->orderBy('client_name')
-            ->orderByDesc('created_at')
+            ->orderBy('id')
             ->get()
             ->map(fn (Reservation $reservation) => $this->formatReservation($reservation));
     }

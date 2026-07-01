@@ -715,6 +715,49 @@ class ReservationEndToEndFlowTest extends TestCase
         $this->assertSame(330000, (int) $response->json('total_amount_ariary'));
     }
 
+    public function test_grouped_organization_folio_can_target_only_a_subset_of_reservations(): void
+    {
+        $user = $this->createReceptionUser();
+        $room1 = $this->createRoom('017');
+        $room2 = $this->createRoom('018');
+        $room3 = $this->createRoom('019');
+
+        $reservation1 = $this->createGroupedOrganizationReservation(
+            $user,
+            'Organisme Groupe B',
+            $room1,
+            'Occupant A',
+        );
+        $reservation2 = $this->createGroupedOrganizationReservation(
+            $user,
+            'Organisme Groupe B',
+            $room2,
+            'Occupant B',
+        );
+        $reservation3 = $this->createGroupedOrganizationReservation(
+            $user,
+            'Organisme Groupe B',
+            $room3,
+            'Occupant C',
+        );
+
+        $response = $this->getJson(
+            "/api/reservations/{$reservation1->id}/folio?group_reservation_ids={$reservation1->id},{$reservation2->id}",
+        )->assertOk();
+
+        $roomLines = collect($response->json('items'))
+            ->pluck('description')
+            ->filter(fn ($description) => str_starts_with((string) $description, 'Chambre '))
+            ->values()
+            ->all();
+
+        $this->assertCount(2, $roomLines);
+        $this->assertContains('Chambre 017 (double standard) - Occupant A - 1 nuit', $roomLines);
+        $this->assertContains('Chambre 018 (double standard) - Occupant B - 1 nuit', $roomLines);
+        $this->assertNotContains('Chambre 019 (double standard) - Occupant C - 1 nuit', $roomLines);
+        $this->assertSame(220000, (int) $response->json('total_amount_ariary'));
+    }
+
     public function test_individual_invoice_uses_room_labels_without_guest_names(): void
     {
         $user = $this->createReceptionUser();

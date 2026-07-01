@@ -1532,12 +1532,143 @@ class _SummaryLine extends StatelessWidget {
   }
 }
 
+class _BookingOptionsPanel extends StatelessWidget {
+  const _BookingOptionsPanel({
+    required this.showEditableSplit,
+    required this.plannedSegments,
+    required this.segmentBuilder,
+    required this.extraBeds,
+    required this.extraMattresses,
+    required this.remainingExtraBeds,
+    required this.remainingExtraMattresses,
+    required this.onExtraBedsChanged,
+    required this.onExtraMattressesChanged,
+  });
+
+  final bool showEditableSplit;
+  final List<_RoomSegmentDraft> plannedSegments;
+  final Widget Function(_RoomSegmentDraft draft) segmentBuilder;
+  final int extraBeds;
+  final int extraMattresses;
+  final int remainingExtraBeds;
+  final int remainingExtraMattresses;
+  final ValueChanged<int> onExtraBedsChanged;
+  final ValueChanged<int> onExtraMattressesChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: _border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Options',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w900,
+              color: _primaryDark,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            showEditableSplit
+                ? 'Le séjour est réparti sur plusieurs segments.'
+                : 'Ajoute les lits ou matelas supplémentaires ici.',
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: _muted,
+            ),
+          ),
+          const SizedBox(height: 10),
+          _QuantitySelector(
+            icon: Icons.bed_outlined,
+            label: 'Lit supplémentaire',
+            value: extraBeds,
+            maxValue: remainingExtraBeds,
+            onChanged: onExtraBedsChanged,
+          ),
+          const SizedBox(height: 8),
+          _QuantitySelector(
+            icon: Icons.airline_seat_individual_suite_outlined,
+            label: 'Matelas supplémentaire',
+            value: extraMattresses,
+            maxValue: remainingExtraMattresses,
+            onChanged: onExtraMattressesChanged,
+          ),
+          if (showEditableSplit) ...[
+            const SizedBox(height: 12),
+            ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              childrenPadding: EdgeInsets.zero,
+              title: const Text(
+                'Modifier le découpage',
+                style: TextStyle(
+                  color: _primaryDark,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              subtitle: const Text(
+                'À ouvrir seulement si la chambre ne couvre pas tout le séjour.',
+                style: TextStyle(
+                  color: _muted,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              children: plannedSegments
+                  .map(
+                    (draft) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: segmentBuilder(draft),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptyBookingOptionsHint extends StatelessWidget {
+  const _EmptyBookingOptionsHint();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: _border),
+      ),
+      child: const Text(
+        'Options : sélectionne une chambre pour ajouter lit ou matelas supplémentaire.',
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+          color: _muted,
+        ),
+      ),
+    );
+  }
+}
+
 class _QuantitySelector extends StatelessWidget {
   const _QuantitySelector({
     required this.icon,
     required this.label,
-    required this.unitPrice,
-    required this.stayNights,
     required this.value,
     required this.onChanged,
     this.maxValue,
@@ -1545,8 +1676,6 @@ class _QuantitySelector extends StatelessWidget {
 
   final IconData icon;
   final String label;
-  final int unitPrice;
-  final int stayNights;
   final int value;
   final ValueChanged<int> onChanged;
   final int? maxValue;
@@ -1623,6 +1752,8 @@ class _NewBookingPageState extends State<NewBookingPage> {
   final List<_RoomSegmentDraft> _segmentDrafts = [];
   String _roomSearchQuery = '';
   bool _showRoomsNeedingSplit = false;
+  int _extraBeds = 0;
+  int _extraMattresses = 0;
   int _remainingExtraBeds = 6;
   int _remainingExtraMattresses = 6;
   bool _loadingRooms = false;
@@ -1976,10 +2107,87 @@ class _NewBookingPageState extends State<NewBookingPage> {
     return segments;
   }
 
+  List<_RoomSegmentDraft> _fallbackSegmentDraftsFromSelection() {
+    return _selectedRooms.map((room) {
+      final roomMap = room is Map<String, dynamic>
+          ? room
+          : Map<String, dynamic>.from(room as Map);
+      return _RoomSegmentDraft(
+        roomId: _asInt(roomMap['id']),
+        roomLabel: _roomLabel(roomMap),
+        startDate: _checkIn,
+        endDate: _checkOut,
+        extraBeds: 0,
+        extraMattresses: 0,
+      );
+    }).toList();
+  }
+
+  List<_RoomSegmentDraft> _draftsForSelection() {
+    final autoDrafts = _buildAutoSegmentDrafts();
+    if (autoDrafts.isNotEmpty) return autoDrafts;
+    return _fallbackSegmentDraftsFromSelection();
+  }
+
+  void _applyGlobalExtrasToDrafts(List<_RoomSegmentDraft> drafts) {
+    if (drafts.isEmpty) return;
+    drafts.first.extraBeds = _extraBeds;
+    drafts.first.extraMattresses = _extraMattresses;
+  }
+
+  void _preserveDraftOptions(
+    List<_RoomSegmentDraft> nextDrafts,
+    List<_RoomSegmentDraft> previousDrafts,
+  ) {
+    for (final draft in nextDrafts) {
+      final previous = previousDrafts.firstWhere(
+        (candidate) =>
+            candidate.roomId == draft.roomId &&
+            _dateOnly(candidate.startDate) == _dateOnly(draft.startDate) &&
+            _dateOnly(candidate.endDate) == _dateOnly(draft.endDate),
+        orElse: () => _RoomSegmentDraft(
+          roomId: 0,
+          roomLabel: '',
+          startDate: _checkIn,
+          endDate: _checkOut,
+          extraBeds: 0,
+          extraMattresses: 0,
+        ),
+      );
+      if (previous.roomId == 0) continue;
+      draft.extraBeds = previous.extraBeds;
+      draft.extraMattresses = previous.extraMattresses;
+    }
+  }
+
   void _rebuildSegmentDraftsFromSelection() {
+    final previousDrafts = List<_RoomSegmentDraft>.from(_segmentDrafts);
+    final nextDrafts = _draftsForSelection();
+    _preserveDraftOptions(nextDrafts, previousDrafts);
+    _applyGlobalExtrasToDrafts(nextDrafts);
     _segmentDrafts
       ..clear()
-      ..addAll(_buildAutoSegmentDrafts());
+      ..addAll(nextDrafts);
+  }
+
+  void _setExtraBeds(int value) {
+    setState(() {
+      _extraBeds = value;
+      if (_segmentDrafts.isEmpty && _selectedRooms.isNotEmpty) {
+        _segmentDrafts.addAll(_draftsForSelection());
+      }
+      _applyGlobalExtrasToDrafts(_segmentDrafts);
+    });
+  }
+
+  void _setExtraMattresses(int value) {
+    setState(() {
+      _extraMattresses = value;
+      if (_segmentDrafts.isEmpty && _selectedRooms.isNotEmpty) {
+        _segmentDrafts.addAll(_draftsForSelection());
+      }
+      _applyGlobalExtrasToDrafts(_segmentDrafts);
+    });
   }
 
   void _syncSelectionFromDrafts() {
@@ -2059,8 +2267,11 @@ class _NewBookingPageState extends State<NewBookingPage> {
   }
 
   List<_RoomSegmentDraft> _currentSegmentDrafts() {
-    if (_segmentDrafts.isNotEmpty) return _segmentDrafts;
-    return _buildAutoSegmentDrafts();
+    if (_segmentDrafts.isEmpty && _selectedRooms.isNotEmpty) {
+      _segmentDrafts.addAll(_draftsForSelection());
+    }
+    _applyGlobalExtrasToDrafts(_segmentDrafts);
+    return _segmentDrafts;
   }
 
   bool _coversWholeStay(List<_RoomSegmentDraft> drafts) {
@@ -2261,6 +2472,8 @@ class _NewBookingPageState extends State<NewBookingPage> {
       _loadingRooms = true;
       _selectedRooms.clear();
       _segmentDrafts.clear();
+      _extraBeds = 0;
+      _extraMattresses = 0;
     });
 
     final prefs = await SharedPreferences.getInstance();
@@ -2339,6 +2552,13 @@ class _NewBookingPageState extends State<NewBookingPage> {
         _remainingExtraMattresses = remainingMattresses is num
             ? remainingMattresses.toInt()
             : 6;
+        if (_extraBeds > _remainingExtraBeds) {
+          _extraBeds = _remainingExtraBeds;
+        }
+        if (_extraMattresses > _remainingExtraMattresses) {
+          _extraMattresses = _remainingExtraMattresses;
+        }
+        _applyGlobalExtrasToDrafts(_segmentDrafts);
       });
     } catch (e) {
       debugPrint("Extra capacity fetch error: $e");
@@ -2759,9 +2979,6 @@ class _NewBookingPageState extends State<NewBookingPage> {
       uniqueRoomOptions[_asInt(room['id'])] = room;
     }
     final displayRooms = uniqueRoomOptions.values.toList();
-    final roomCountLabel = displayRooms.length == 1
-        ? '1 chambre possible'
-        : '${displayRooms.length} chambres possibles';
     final nights = _segmentNightCount(draft);
     final roomPrice = _segmentRoomNightPrice(draft);
     final extrasNightPrice = _segmentExtrasNightPrice(draft);
@@ -2785,7 +3002,7 @@ class _NewBookingPageState extends State<NewBookingPage> {
             ),
             const SizedBox(height: 4),
             Text(
-              '$roomCountLabel • $nights nuit${nights > 1 ? 's' : ''}',
+              'Segment: $nights nuit${nights > 1 ? 's' : ''}',
               style: const TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
@@ -2796,7 +3013,7 @@ class _NewBookingPageState extends State<NewBookingPage> {
             DropdownButtonFormField<int>(
               initialValue: draft.roomId,
               decoration: const InputDecoration(
-                labelText: 'Chambre du segment',
+                labelText: 'Changer de chambre',
                 border: OutlineInputBorder(),
                 isDense: true,
               ),
@@ -2874,8 +3091,6 @@ class _NewBookingPageState extends State<NewBookingPage> {
             _QuantitySelector(
               icon: Icons.bed_outlined,
               label: 'Lit supplémentaire',
-              unitPrice: 50000,
-              stayNights: nights,
               value: draft.extraBeds,
               maxValue: _remainingExtraBeds,
               onChanged: (value) => setState(() => draft.extraBeds = value),
@@ -2884,8 +3099,6 @@ class _NewBookingPageState extends State<NewBookingPage> {
             _QuantitySelector(
               icon: Icons.airline_seat_individual_suite_outlined,
               label: 'Matelas supplémentaire',
-              unitPrice: 30000,
-              stayNights: nights,
               value: draft.extraMattresses,
               maxValue: _remainingExtraMattresses,
               onChanged: (value) =>
@@ -2919,6 +3132,7 @@ class _NewBookingPageState extends State<NewBookingPage> {
   Widget build(BuildContext context) {
     final plannedSegments = _currentSegmentDrafts();
     final showEditableSplit = _hasMeaningfulRoomSplit(plannedSegments);
+    final hasSelectedRooms = _selectedRooms.isNotEmpty;
     List<dynamic> filteredRooms = _allAvailableRooms;
     if (_isBookingCom) {
       filteredRooms = _allAvailableRooms
@@ -3091,6 +3305,8 @@ class _NewBookingPageState extends State<NewBookingPage> {
                           _isBookingCom = val;
                           _selectedRooms.clear();
                           _segmentDrafts.clear();
+                          _extraBeds = 0;
+                          _extraMattresses = 0;
                         });
                       },
                     ),
@@ -3138,6 +3354,21 @@ class _NewBookingPageState extends State<NewBookingPage> {
                       }
                     },
                   ),
+                  const SizedBox(height: 12),
+                  if (hasSelectedRooms)
+                    _BookingOptionsPanel(
+                      showEditableSplit: showEditableSplit,
+                      plannedSegments: plannedSegments,
+                      segmentBuilder: _buildSegmentDraftCard,
+                      extraBeds: _extraBeds,
+                      extraMattresses: _extraMattresses,
+                      remainingExtraBeds: _remainingExtraBeds,
+                      remainingExtraMattresses: _remainingExtraMattresses,
+                      onExtraBedsChanged: _setExtraBeds,
+                      onExtraMattressesChanged: _setExtraMattresses,
+                    )
+                  else
+                    const _EmptyBookingOptionsHint(),
                   const SizedBox(height: 20),
                   Container(
                     padding: const EdgeInsets.all(12),
@@ -3178,34 +3409,6 @@ class _NewBookingPageState extends State<NewBookingPage> {
                           value: '${formatPrice(_calculateTotalPrice())} Ar',
                           emphasized: true,
                         ),
-                        if (showEditableSplit) ...[
-                          const Divider(height: 20),
-                          const Text(
-                            'Découpage proposé modifiable',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w900,
-                              color: _primaryDark,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          ...plannedSegments.map(
-                            (draft) => Padding(
-                              padding: const EdgeInsets.only(bottom: 12),
-                              child: _buildSegmentDraftCard(draft),
-                            ),
-                          ),
-                        ] else if (_selectedRooms.isEmpty) ...[
-                          const Divider(height: 20),
-                          const Text(
-                            'Sélectionne au moins une chambre pour générer un découpage modifiable.',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              color: _muted,
-                            ),
-                          ),
-                        ],
                       ],
                     ),
                   ),
@@ -3430,6 +3633,10 @@ class _NewBookingPageState extends State<NewBookingPage> {
                                   );
                                 }
                                 _rebuildSegmentDraftsFromSelection();
+                                if (_selectedRooms.isEmpty) {
+                                  _extraBeds = 0;
+                                  _extraMattresses = 0;
+                                }
                               });
                             },
                           );

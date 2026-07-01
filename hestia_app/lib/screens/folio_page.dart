@@ -154,6 +154,39 @@ class _FolioPageState extends State<FolioPage> {
         .toSet();
   }
 
+  Set<int> _defaultIndividualSelectionIds() {
+    final selectedGroupIds = _groupReservationIds.toSet();
+    final selected = <int>{};
+
+    for (final bookingId in selectedGroupIds) {
+      if (_roomBookings.any((room) => _asInt(room['id']) == bookingId) ||
+          _roomInvoices.any(
+            (invoice) => _asInt(invoice['booking_room_id']) == bookingId,
+          ) ||
+          _roomInvoices.any((invoice) => _asInt(invoice['id']) == bookingId)) {
+        selected.add(bookingId);
+      }
+    }
+
+    if (selected.isNotEmpty) {
+      return selected;
+    }
+
+    if (_roomBookings.isNotEmpty) {
+      return {_asInt(_roomBookings.first['id'])};
+    }
+
+    if (_roomInvoices.isNotEmpty) {
+      return {
+        _asInt(_roomInvoices.first['booking_room_id']) > 0
+            ? _asInt(_roomInvoices.first['booking_room_id'])
+            : _asInt(_roomInvoices.first['id']),
+      };
+    }
+
+    return {};
+  }
+
   List<Map<String, dynamic>> get _individualSelectionEntries {
     if (_roomInvoices.isNotEmpty) {
       return _roomInvoices.map((invoice) {
@@ -295,22 +328,19 @@ class _FolioPageState extends State<FolioPage> {
               ? resolvedSelections.first
               : _selectedInvoiceId;
         } else {
+          final defaultSelections = _defaultIndividualSelectionIds();
           _selectedInvoiceIds
             ..clear()
-            ..addAll(
-              roomBookingIds.isNotEmpty
-                  ? roomBookingIds
-                  : roomInvoiceBookingIds,
-            );
+            ..addAll(defaultSelections);
           if (_selectedInvoiceId == null || _selectedInvoiceId! <= 0) {
-            _selectedInvoiceId = roomBookingIds.isNotEmpty
+            _selectedInvoiceId = defaultSelections.isNotEmpty
+                ? defaultSelections.first
+                : roomBookingIds.isNotEmpty
                 ? roomBookingIds.first
                 : roomInvoiceBookingIds.isNotEmpty
                 ? roomInvoiceBookingIds.first
                 : roomInvoiceIds.isNotEmpty
                 ? roomInvoiceIds.first
-                : roomBookingIds.isNotEmpty
-                ? roomBookingIds.first
                 : null;
           }
         }
@@ -1137,16 +1167,11 @@ class _FolioPageState extends State<FolioPage> {
                                         if (nextMode == 'grouped') {
                                           _selectedInvoiceIds.clear();
                                         } else {
+                                          final defaultSelections =
+                                              _defaultIndividualSelectionIds();
                                           _selectedInvoiceIds
                                             ..clear()
-                                            ..addAll(
-                                              _roomInvoices
-                                                  .map(
-                                                    (invoice) =>
-                                                        _asInt(invoice['id']),
-                                                  )
-                                                  .where((id) => id > 0),
-                                            );
+                                            ..addAll(defaultSelections);
                                         }
                                       });
                                       if (nextInvoiceId != null) {
@@ -1210,9 +1235,13 @@ class _FolioPageState extends State<FolioPage> {
                                             _selectedInvoiceId =
                                                 _selectedInvoiceIds.isNotEmpty
                                                 ? _selectedInvoiceIds.first
-                                                : _invoiceIdForBillingMode(
-                                                    'individual',
-                                                  );
+                                                : (_defaultIndividualSelectionIds()
+                                                          .isNotEmpty
+                                                      ? _defaultIndividualSelectionIds()
+                                                            .first
+                                                      : _invoiceIdForBillingMode(
+                                                          'individual',
+                                                        ));
                                           }
                                         }
                                       });
@@ -1222,19 +1251,14 @@ class _FolioPageState extends State<FolioPage> {
                                   : () {
                                       setState(() {
                                         _billingMode = 'individual';
+                                        final defaultSelections =
+                                            _defaultIndividualSelectionIds();
                                         _selectedInvoiceIds
                                           ..clear()
-                                          ..addAll(
-                                            _roomInvoices
-                                                .map(
-                                                  (invoice) =>
-                                                      _asInt(invoice['id']),
-                                                )
-                                                .where((id) => id > 0),
-                                          );
+                                          ..addAll(defaultSelections);
                                         _selectedInvoiceId =
-                                            _roomInvoices.isNotEmpty
-                                            ? _asInt(_roomInvoices.first['id'])
+                                            defaultSelections.isNotEmpty
+                                            ? defaultSelections.first
                                             : _selectedInvoiceId;
                                       });
                                     },

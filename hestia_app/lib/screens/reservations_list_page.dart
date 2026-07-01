@@ -829,8 +829,6 @@ class _EditReservationPageState extends State<EditReservationPage> {
             _QuantitySelector(
               icon: Icons.bed_outlined,
               label: 'Lit supplémentaire',
-              unitPrice: 50000,
-              stayNights: _segmentNights(draft),
               value: draft.extraBeds,
               maxValue: 6,
               onChanged: (value) => setState(() => draft.extraBeds = value),
@@ -839,8 +837,6 @@ class _EditReservationPageState extends State<EditReservationPage> {
             _QuantitySelector(
               icon: Icons.airline_seat_individual_suite_outlined,
               label: 'Matelas supplémentaire',
-              unitPrice: 30000,
-              stayNights: _segmentNights(draft),
               value: draft.extraMattresses,
               maxValue: 6,
               onChanged: (value) =>
@@ -1250,6 +1246,7 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
   bool _isLoading = true;
   late DateTime _selectedDate;
   String _statusFilter = 'pending';
+  String _bookingTypeFilter = 'all';
   String _searchQuery = '';
   final Set<int> _groupSelectionIds = {};
 
@@ -1309,34 +1306,6 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
     ].join('|');
   }
 
-  List<Map<String, dynamic>> _groupReservationsFor(Map<String, dynamic> base) {
-    final baseOrganizationId = _asInt(
-      (base['organization'] is Map)
-          ? (base['organization'] as Map)['id']
-          : base['organization_id'],
-    );
-    final baseCheckIn = (base['check_in'] ?? '').toString();
-    final baseCheckOut = (base['check_out'] ?? '').toString();
-
-    return _reservations
-        .whereType<Map>()
-        .map((item) => Map<String, dynamic>.from(item))
-        .where(
-          (item) =>
-              _isOrganizationReservation(item) &&
-              _asInt(
-                    (item['organization'] is Map)
-                        ? (item['organization'] as Map)['id']
-                        : item['organization_id'],
-                  ) ==
-                  baseOrganizationId &&
-              (item['check_in'] ?? '').toString() == baseCheckIn &&
-              (item['check_out'] ?? '').toString() == baseCheckOut,
-        )
-        .toList()
-      ..sort((a, b) => _asInt(a['id']).compareTo(_asInt(b['id'])));
-  }
-
   Future<void> _openGroupedFolioFromSelection() async {
     if (_groupSelectionIds.isEmpty) return;
 
@@ -1362,11 +1331,13 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
       return;
     }
 
-    final groupedReservations = _groupReservationsFor(base);
-    if (groupedReservations.isEmpty) {
+    final selectedIds = selected
+        .map((reservation) => _asInt(reservation['id']))
+        .toList();
+    if (selectedIds.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Aucune réservation d’organisme compatible trouvée.'),
+          content: Text('Aucune réservation sélectionnée.'),
           backgroundColor: Colors.orange,
         ),
       );
@@ -1421,7 +1392,7 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  '${groupedReservations.length} réservation(s) sélectionnée(s) pour $orgName.',
+                  '${selected.length} réservation(s) sélectionnée(s) pour $orgName.',
                   style: const TextStyle(color: _muted, fontSize: 12),
                 ),
               ],
@@ -1445,7 +1416,7 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
 
     if (selection == null || !mounted) return;
 
-    final anchor = groupedReservations.first;
+    final anchor = selected.first;
     await Navigator.push(
       context,
       MaterialPageRoute(
@@ -1454,9 +1425,7 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
           userName: widget.userName,
           role: widget.role,
           pricingMode: selection['pricing_mode']?.toString() ?? 'fixed',
-          groupReservationIds: groupedReservations
-              .map((reservation) => _asInt(reservation['id']))
-              .toList(),
+          groupReservationIds: selectedIds,
         ),
       ),
     );
@@ -1477,16 +1446,17 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
       final occupantName = (room['occupant_name'] ?? '').toString().trim();
       if (occupantName.isEmpty) continue;
 
-      final roomNumber = (room['room_number'] ?? '').toString().trim();
-      occupants.add(
-        roomNumber.isNotEmpty
-            ? 'Chambre $roomNumber: $occupantName'
-            : occupantName,
-      );
+      occupants.add(occupantName);
     }
 
     if (occupants.isEmpty) return null;
-    return 'Occupant${occupants.length > 1 ? 's' : ''} : ${occupants.join(' | ')}';
+    return 'Occupant : ${occupants.join(' | ')}';
+  }
+
+  DateTime _reservationSortDate(Map<String, dynamic> reservation) {
+    final createdAt = (reservation['created_at'] ?? '').toString();
+    return DateTime.tryParse(createdAt) ??
+        DateTime.fromMillisecondsSinceEpoch(0);
   }
 
   Future<void> _fetchReservations() async {
@@ -2105,26 +2075,56 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
   Widget build(BuildContext context) {
     final query = _searchQuery.trim().toLowerCase();
     final selectedDateKey = _selectedDate.toIso8601String().substring(0, 10);
-    final displayedReservations = _reservations.where((reservation) {
-      final clientName = (reservation['client_name'] ?? '')
-          .toString()
-          .toLowerCase();
-      final matchesSearch = query.isEmpty || clientName.contains(query);
-      final status = (reservation['status'] ?? '').toString();
-      final paymentStatus = (reservation['payment_status'] ?? 'unbilled')
-          .toString();
-      final matchesStatus = switch (_statusFilter) {
-        'pending' => status == 'en_attente',
-        'unpaid' =>
-          status == 'arrive' &&
-              (paymentStatus == 'unpaid' ||
-                  paymentStatus == 'partial' ||
-                  paymentStatus == 'unbilled'),
-        'paid' => paymentStatus == 'paid',
-        _ => true,
-      };
-      return matchesSearch && matchesStatus;
-    }).toList();
+    final displayedReservations =
+        _reservations.where((reservation) {
+          final clientName = (reservation['client_name'] ?? '')
+              .toString()
+              .toLowerCase();
+          final matchesSearch = query.isEmpty || clientName.contains(query);
+          final status = (reservation['status'] ?? '').toString();
+          final paymentStatus = (reservation['payment_status'] ?? 'unbilled')
+              .toString();
+          final bookingType = (reservation['booking_type'] ?? '').toString();
+          final matchesStatus = switch (_statusFilter) {
+            'pending' => status == 'en_attente',
+            'unpaid' =>
+              status == 'arrive' &&
+                  (paymentStatus == 'unpaid' ||
+                      paymentStatus == 'partial' ||
+                      paymentStatus == 'unbilled'),
+            'paid' => paymentStatus == 'paid',
+            _ => true,
+          };
+          final matchesType = switch (_bookingTypeFilter) {
+            'organization' => bookingType == 'organization',
+            'individual' => bookingType != 'organization',
+            _ => true,
+          };
+          return matchesSearch && matchesStatus && matchesType;
+        }).toList()..sort((a, b) {
+          final checkInCompare = (a['check_in'] ?? '').toString().compareTo(
+            (b['check_in'] ?? '').toString(),
+          );
+          if (checkInCompare != 0) return checkInCompare;
+
+          final createdCompare = _reservationSortDate(
+            a,
+          ).compareTo(_reservationSortDate(b));
+          if (createdCompare != 0) return createdCompare;
+
+          final typeCompare = (a['booking_type'] ?? '').toString().compareTo(
+            (b['booking_type'] ?? '').toString(),
+          );
+          if (typeCompare != 0) return typeCompare;
+
+          final nameCompare = (a['client_name'] ?? '')
+              .toString()
+              .toLowerCase()
+              .compareTo((b['client_name'] ?? '').toString().toLowerCase());
+          if (nameCompare != 0) return nameCompare;
+
+          return _asInt(a['id']).compareTo(_asInt(b['id']));
+        });
 
     return Scaffold(
       appBar: AppBar(
@@ -2200,6 +2200,34 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                 ),
                 const SizedBox(height: 12),
                 Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    ChoiceChip(
+                      label: const Text('Tous'),
+                      selected: _bookingTypeFilter == 'all',
+                      onSelected: (_) {
+                        setState(() => _bookingTypeFilter = 'all');
+                      },
+                    ),
+                    ChoiceChip(
+                      label: const Text('Organisme'),
+                      selected: _bookingTypeFilter == 'organization',
+                      onSelected: (_) {
+                        setState(() => _bookingTypeFilter = 'organization');
+                      },
+                    ),
+                    ChoiceChip(
+                      label: const Text('Particulier'),
+                      selected: _bookingTypeFilter == 'individual',
+                      onSelected: (_) {
+                        setState(() => _bookingTypeFilter = 'individual');
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Wrap(
                   spacing: 12,
                   runSpacing: 8,
                   alignment: WrapAlignment.spaceBetween,
@@ -2230,23 +2258,6 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                         side: const BorderSide(color: _border),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    ),
-                    TextButton(
-                      onPressed: () {
-                        setState(() {
-                          _statusFilter = _statusFilter == 'all'
-                              ? 'pending'
-                              : 'all';
-                        });
-                        _fetchReservations();
-                      },
-                      child: Text(
-                        _statusFilter == 'all' ? 'En attente' : 'Voir tout',
-                        style: const TextStyle(
-                          color: _primaryDark,
-                          fontWeight: FontWeight.w800,
                         ),
                       ),
                     ),
@@ -2801,8 +2812,6 @@ class _QuantitySelector extends StatelessWidget {
   const _QuantitySelector({
     required this.icon,
     required this.label,
-    required this.unitPrice,
-    required this.stayNights,
     required this.value,
     required this.onChanged,
     this.maxValue,
@@ -2810,8 +2819,6 @@ class _QuantitySelector extends StatelessWidget {
 
   final IconData icon;
   final String label;
-  final int unitPrice;
-  final int stayNights;
   final int value;
   final ValueChanged<int> onChanged;
   final int? maxValue;
