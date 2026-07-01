@@ -888,7 +888,7 @@ class PMSController extends Controller
             ],
         );
 
-        if ($invoice->items()->where('type', 'room')->doesntExist()) {
+        if ($invoice->status !== 'finalized') {
             $this->seedRoomItems($invoice, $reservation);
         }
 
@@ -1033,11 +1033,43 @@ class PMSController extends Controller
         Invoice $invoice,
         Reservation $reservation,
         bool $allowGenericReuse = true,
+        bool $deleteStaleItems = true,
     ): void
     {
+        $reservation->loadMissing('rooms');
+
+        if ($deleteStaleItems) {
+            $this->deleteStaleGeneratedRoomItems($invoice, $reservation);
+        }
+
         foreach ($reservation->rooms as $room) {
             $this->syncGeneratedRoomItem($invoice, $reservation, $room, $allowGenericReuse);
         }
+    }
+
+    private function deleteStaleGeneratedRoomItems(Invoice $invoice, Reservation $reservation): void
+    {
+        $currentBookingRoomIds = $reservation->rooms
+            ->map(fn (Room $room) => (int) ($room->pivot->id ?? 0))
+            ->filter(fn (int $id) => $id > 0)
+            ->values()
+            ->all();
+
+        if ($currentBookingRoomIds === []) {
+            return;
+        }
+
+        $invoice->items()
+            ->where('type', 'room')
+            ->whereNull('created_by_role')
+            ->whereNull('manual_override_at')
+            ->where(function ($query) use ($currentBookingRoomIds) {
+                $query
+                    ->whereNull('booking_room_id')
+                    ->orWhereNotIn('booking_room_id', $currentBookingRoomIds);
+            })
+            ->get()
+            ->each(fn (InvoiceItem $item) => $item->forceDelete());
     }
 
     private function syncReservationExtras(Invoice $invoice, Reservation $reservation): void
@@ -1175,14 +1207,19 @@ class PMSController extends Controller
 
         $item = $this->generatedInvoiceItemQuery($invoice, 'room', $bookingRoomId)
             ->first();
-        $item ??= InvoiceItem::withTrashed()
-            ->where('invoice_id', $invoice->id)
-            ->where('type', 'room')
-            ->whereNull('created_by_role')
-            ->whereNull('manual_override_at')
-            ->where('description', 'like', 'Chambre ' . $room->room_number . ' %')
-            ->orderBy('id')
-            ->first();
+        $hasRepeatedRoomSegments = $reservation->rooms
+            ->groupBy(fn (Room $candidate) => (int) $candidate->id)
+            ->contains(fn (Collection $group) => $group->count() > 1);
+        if (! $item && ! $hasRepeatedRoomSegments) {
+            $item = InvoiceItem::withTrashed()
+                ->where('invoice_id', $invoice->id)
+                ->where('type', 'room')
+                ->whereNull('created_by_role')
+                ->whereNull('manual_override_at')
+                ->where('description', 'like', 'Chambre ' . $room->room_number . ' %')
+                ->orderBy('id')
+                ->first();
+        }
 
         $canReuseOnlyRoomLine = ($invoice->invoice_kind ?? 'master') === 'room'
             || $reservation->rooms->count() <= 1;
@@ -1717,7 +1754,7 @@ class PMSController extends Controller
             }
 
             $reservation->loadMissing('rooms');
-            $this->seedRoomItems($invoice, $reservation, false);
+            $this->seedRoomItems($invoice, $reservation, false, false);
             $this->syncReservationExtrasForGroupedInvoice($invoice, $reservation);
         }
 

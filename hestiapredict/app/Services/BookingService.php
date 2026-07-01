@@ -253,15 +253,20 @@ class BookingService
         }
 
         $isCheckedIn = $reservation->status === 'arrive';
+        $currentCheckIn = Carbon::parse($reservation->check_in_date)->toDateString();
+        $currentCheckOut = Carbon::parse($reservation->check_out_date)->toDateString();
+        $submittedCheckIn = (string) ($data['check_in'] ?? $currentCheckIn);
+        $submittedCheckOut = (string) ($data['check_out'] ?? $currentCheckOut);
         $checkIn = $isCheckedIn
-            ? Carbon::parse($reservation->check_in_date)->toDateString()
-            : $data['check_in'];
-        $checkOut = $isCheckedIn
-            ? Carbon::parse($reservation->check_out_date)->toDateString()
-            : $data['check_out'];
+            ? $currentCheckIn
+            : $submittedCheckIn;
+        $checkOut = $submittedCheckOut;
         $roomIds = collect($data['room_ids'])->map(fn ($roomId) => (int) $roomId)->values();
         $roomSegments = $this->normalizeRoomSegments($data, $checkIn, $checkOut, $roomIds);
         $hasCustomSegments = filled($data['room_segments'] ?? null);
+        if ($isCheckedIn && Carbon::parse($checkOut)->gt(Carbon::parse($currentCheckOut))) {
+            $roomSegments = $this->extendLatestSegmentsToCheckOut($roomSegments, $checkOut);
+        }
 
         if ($isCheckedIn) {
             $submittedName = trim((string) ($data['client_name'] ?? ''));
@@ -279,16 +284,16 @@ class BookingService
             if ($submittedEmail !== '' && $submittedEmail !== $currentEmail) {
                 $blockedChanges[] = 'customer_email';
             }
-            if ($checkIn !== Carbon::parse($reservation->check_in_date)->toDateString()) {
+            if ($submittedCheckIn !== $currentCheckIn) {
                 $blockedChanges[] = 'check_in';
             }
-            if ($checkOut !== Carbon::parse($reservation->check_out_date)->toDateString()) {
+            if (Carbon::parse($checkOut)->lt(Carbon::parse($currentCheckOut))) {
                 $blockedChanges[] = 'check_out';
             }
 
             if (!empty($blockedChanges)) {
                 throw ValidationException::withMessages([
-                    'reservation' => 'Après check-in, seules les chambres et les suppléments peuvent être modifiés.',
+                    'reservation' => 'Après check-in, seules les chambres, les suppléments et une prolongation de séjour peuvent être modifiés.',
                 ]);
             }
 
@@ -339,7 +344,7 @@ class BookingService
             $reservation->id,
         );
 
-        return DB::transaction(function () use ($reservation, $data, $roomIds, $isCheckedIn, $roomSegments, $hasCustomSegments) {
+        return DB::transaction(function () use ($reservation, $data, $roomIds, $isCheckedIn, $roomSegments, $hasCustomSegments, $checkOut) {
             $customerPhone = PhoneNumber::normalize($data['customer_phone'] ?? null);
             $previousPivots = $reservation->rooms
                 ->mapWithKeys(fn (Room $room) => [$room->id => $this->pivotSnapshot($room)]);
@@ -357,6 +362,7 @@ class BookingService
             };
 
             $updateData = [
+                'check_out_date' => $checkOut,
                 'extra_beds' => $hasCustomSegments
                     ? $roomSegments->sum(fn (array $segment) => (int) ($segment['segment_extra_beds'] ?? 0))
                     : (int) ($data['extra_beds'] ?? 0),
@@ -372,10 +378,10 @@ class BookingService
                     'customer_phone' => $customerPhone,
                     'customer_email' => $data['customer_email'] ?? null,
                     'check_in_date' => $data['check_in'],
-                    'check_out_date' => $data['check_out'],
                 ]);
             }
 
+            $registerChange('check_out', $reservation->check_out_date->toDateString(), $checkOut);
             $registerChange('room_ids', $previousRoomIds, $newRoomIds);
             $registerChange('extra_beds', (int) $reservation->extra_beds, $updateData['extra_beds']);
             $registerChange(
@@ -397,7 +403,6 @@ class BookingService
                     $data['customer_email'] ?? null
                 );
                 $registerChange('check_in', $reservation->check_in_date->toDateString(), $data['check_in']);
-                $registerChange('check_out', $reservation->check_out_date->toDateString(), $data['check_out']);
             }
 
             $reservation->update($updateData);
@@ -644,6 +649,31 @@ class BookingService
                 }
             }
         }
+    }
+
+    private function extendLatestSegmentsToCheckOut(Collection $segments, string $checkOut): Collection
+    {
+        if ($segments->isEmpty()) {
+            return $segments;
+        }
+
+        $latestEnd = $segments
+            ->map(fn (array $segment) => Carbon::parse($segment['segment_end_date'])->toDateString())
+            ->max();
+
+        if ($latestEnd === null || Carbon::parse($latestEnd)->gte(Carbon::parse($checkOut))) {
+            return $segments;
+        }
+
+        return $segments
+            ->map(function (array $segment) use ($latestEnd, $checkOut) {
+                if (Carbon::parse($segment['segment_end_date'])->toDateString() === $latestEnd) {
+                    $segment['segment_end_date'] = $checkOut;
+                }
+
+                return $segment;
+            })
+            ->values();
     }
 
     private function retainConsumedRoomSegments(Reservation $reservation, Collection $segments): Collection

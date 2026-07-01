@@ -672,6 +672,94 @@ class ReservationEndToEndFlowTest extends TestCase
         $this->assertContains('Matelas supplémentaire - Chambre 01 (double standard) - 1 nuit', $pdfDescriptions);
     }
 
+    public function test_receptionist_can_extend_checked_in_stay_without_new_invoice(): void
+    {
+        $user = $this->createReceptionUser();
+        $room = $this->createRoom('914');
+
+        $this->createReservation([
+            'client_name' => 'Client Prolongation',
+            'customer_phone' => '0349000016',
+            'customer_email' => 'client-prolongation@example.com',
+            'check_in' => '2026-06-30',
+            'check_out' => '2026-07-01',
+            'room_ids' => [$room->id],
+            'room_segments' => [
+                [
+                    'room_id' => $room->id,
+                    'segment_start_date' => '2026-06-30',
+                    'segment_end_date' => '2026-07-01',
+                    'segment_extra_beds' => 0,
+                    'segment_extra_mattresses' => 0,
+                ],
+            ],
+            'room_prices' => [
+                ['id' => $room->id, 'price' => 110000],
+            ],
+            'source' => 'Appel',
+            'receptionist_name' => $user->name,
+        ]);
+
+        $reservation = Reservation::query()
+            ->where('client_name', 'Client Prolongation')
+            ->firstOrFail();
+
+        $this->postJson("/api/reservations/{$reservation->id}/checkin", [
+            'full_name' => 'Client Prolongation',
+            'customer_phone' => '0349000016',
+            'phone_number' => '0349000016',
+            'date_of_birth' => '1989-07-07',
+            'sex' => 'Homme',
+            'id_type' => 'CIN',
+            'id_number' => 'CIN-PROLONG-001',
+            'id_document_number' => 'CIN-PROLONG-001',
+            'checked_in_by_name' => $user->name,
+            'checked_in_by_role' => $user->role,
+        ])->assertOk();
+
+        $initialFolio = $this->getJson("/api/reservations/{$reservation->id}/folio")->assertOk();
+        $invoiceId = $initialFolio->json('id');
+        $initialFolio->assertJsonPath('total_amount_ariary', 110000);
+
+        $this->putJson("/api/reservations/{$reservation->id}", [
+            'check_in' => '2026-06-30',
+            'check_out' => '2026-07-03',
+            'room_ids' => [$room->id],
+            'room_segments' => [
+                [
+                    'room_id' => $room->id,
+                    'segment_start_date' => '2026-06-30',
+                    'segment_end_date' => '2026-07-01',
+                    'segment_extra_beds' => 0,
+                    'segment_extra_mattresses' => 0,
+                ],
+            ],
+            'extra_beds' => 0,
+            'extra_mattresses' => 0,
+            'modified_by_name' => $user->name,
+            'modified_by_role' => 'receptionist',
+        ])->assertOk();
+
+        $reservation->refresh()->load('rooms');
+        $this->assertSame('2026-07-03', $reservation->check_out_date->toDateString());
+        $this->assertSame(2, $reservation->rooms->count());
+        $this->assertSame(
+            ['2026-06-30:2026-07-01', '2026-07-01:2026-07-03'],
+            $reservation->rooms
+                ->sortBy(fn (Room $room) => $room->pivot->segment_start_date)
+                ->map(fn (Room $room) => $room->pivot->segment_start_date->toDateString() . ':' . $room->pivot->segment_end_date->toDateString())
+                ->values()
+                ->all(),
+        );
+
+        $folio = $this->getJson("/api/reservations/{$reservation->id}/folio")->assertOk();
+        $this->assertSame($invoiceId, $folio->json('id'));
+        $folio->assertJsonPath('total_amount_ariary', 330000);
+        $descriptions = collect($folio->json('items'))->pluck('description')->all();
+        $this->assertContains('Chambre 914 (double standard) - 1 nuit', $descriptions);
+        $this->assertContains('Chambre 914 (double standard) - 2 nuits', $descriptions);
+    }
+
     public function test_grouped_organization_folio_includes_all_selected_reservations(): void
     {
         $user = $this->createReceptionUser();

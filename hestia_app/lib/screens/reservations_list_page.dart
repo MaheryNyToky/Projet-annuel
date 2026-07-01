@@ -101,6 +101,8 @@ class _EditReservationPageState extends State<EditReservationPage> {
   bool get _isPostCheckIn =>
       (widget.reservation['status'] ?? '').toString() == 'arrive';
 
+  bool get _canEditCheckIn => widget.role != 'receptionist' && !_isPostCheckIn;
+
   @override
   void initState() {
     super.initState();
@@ -341,6 +343,9 @@ class _EditReservationPageState extends State<EditReservationPage> {
     if (text == null || text.isEmpty || text == 'null') return null;
     return DateTime.tryParse(text);
   }
+
+  DateTime _dateOnly(DateTime value) =>
+      DateTime(value.year, value.month, value.day);
 
   String _dateLabel(DateTime value) {
     final day = value.day.toString().padLeft(2, '0');
@@ -644,17 +649,29 @@ class _EditReservationPageState extends State<EditReservationPage> {
   }
 
   Future<void> _pickCheckOut() async {
+    final firstDate = _isPostCheckIn
+        ? _reservation.checkOut
+        : _checkIn.add(const Duration(days: 1));
+    final initialDate = _checkOut.isBefore(firstDate) ? firstDate : _checkOut;
     final selected = await showDatePicker(
       context: context,
-      initialDate: _checkOut.isAfter(_checkIn)
-          ? _checkOut
-          : _checkIn.add(const Duration(days: 1)),
-      firstDate: _checkIn.add(const Duration(days: 1)),
+      initialDate: initialDate,
+      firstDate: firstDate,
       lastDate: DateTime.now().add(const Duration(days: 365)),
     );
     if (selected == null) return;
 
-    setState(() => _checkOut = selected);
+    final previousCheckOut = _checkOut;
+    setState(() {
+      _checkOut = selected;
+      if (selected.isAfter(previousCheckOut)) {
+        for (final draft in _segmentDrafts.values) {
+          if (_dateOnly(draft.endDate) == _dateOnly(previousCheckOut)) {
+            draft.endDate = selected;
+          }
+        }
+      }
+    });
     _fetchRooms();
   }
 
@@ -909,25 +926,25 @@ class _EditReservationPageState extends State<EditReservationPage> {
                     ),
                     const SizedBox(height: 12),
                     ListTile(
-                      enabled: !_isPostCheckIn,
+                      enabled: _canEditCheckIn,
                       contentPadding: EdgeInsets.zero,
                       leading: const Icon(Icons.login),
                       title: Text('Arrivée : $_checkInKey'),
                       trailing: const Icon(Icons.calendar_today),
-                      onTap: _isPostCheckIn ? null : _pickCheckIn,
+                      onTap: _canEditCheckIn ? _pickCheckIn : null,
                     ),
                     ListTile(
-                      enabled: !_isPostCheckIn,
+                      enabled: true,
                       contentPadding: EdgeInsets.zero,
                       leading: const Icon(Icons.logout),
                       title: Text('Départ : $_checkOutKey'),
                       trailing: const Icon(Icons.calendar_today),
-                      onTap: _isPostCheckIn ? null : _pickCheckOut,
+                      onTap: _pickCheckOut,
                     ),
                     if (_isPostCheckIn) ...[
                       const SizedBox(height: 8),
                       const Text(
-                        'Après check-in, seules les chambres et les suppléments peuvent être modifiés.',
+                        'Après check-in, le départ peut être prolongé. Les nuits déjà passées restent conservées.',
                         style: TextStyle(
                           color: _muted,
                           fontWeight: FontWeight.w700,
