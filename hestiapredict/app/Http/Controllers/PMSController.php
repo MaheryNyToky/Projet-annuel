@@ -265,7 +265,28 @@ class PMSController extends Controller
 
     public function getFolio(int $id): JsonResponse
     {
-        $reservation = Reservation::with(['rooms', 'guest', 'invoice.items', 'invoice.payments', 'invoices.items', 'invoices.payments'])->findOrFail($id);
+        $reservation = Reservation::with([
+            'rooms',
+            'guest',
+            'invoice.items',
+            'invoice.payments',
+            'invoices.items',
+            'invoices.payments',
+        ])->findOrFail($id);
+
+        $groupReservationIds = $this->parseGroupReservationIds(request('group_reservation_ids'));
+        if ($groupReservationIds->isNotEmpty()) {
+            $groupReservations = $this->resolveGroupReservations(
+                $reservation,
+                $groupReservationIds,
+            );
+            if ($groupReservations->count() > 1) {
+                $invoice = $this->ensureOpenFolio($reservation);
+                $this->syncGroupedReservationFolio($invoice, $groupReservations);
+
+                return response()->json($this->folioPayload($invoice->refresh()));
+            }
+        }
 
         $invoice = $this->resolveFolioInvoice($reservation, request()->integer('invoice_id') ?: null);
 
@@ -923,7 +944,7 @@ class PMSController extends Controller
                 InvoiceItem::create([
                     'invoice_id' => $childInvoice->id,
                     'booking_room_id' => $roomBookingId,
-                    'description' => $this->roomInvoiceDescription($room, $nights),
+                    'description' => $this->roomInvoiceDescription($room, $reservation, $nights),
                     'type' => 'room',
                     'amount_ariary' => $pricePerNight,
                     'quantity' => $nights,
@@ -1008,10 +1029,14 @@ class PMSController extends Controller
         }
     }
 
-    private function seedRoomItems(Invoice $invoice, Reservation $reservation): void
+    private function seedRoomItems(
+        Invoice $invoice,
+        Reservation $reservation,
+        bool $allowGenericReuse = true,
+    ): void
     {
         foreach ($reservation->rooms as $room) {
-            $this->syncGeneratedRoomItem($invoice, $reservation, $room);
+            $this->syncGeneratedRoomItem($invoice, $reservation, $room, $allowGenericReuse);
         }
     }
 
@@ -1062,25 +1087,41 @@ class PMSController extends Controller
 
             $item->update([
                 'booking_room_id' => $room->pivot->id ?? $item->booking_room_id,
-                'description' => $this->roomInvoiceDescription($room, $this->bookingRoomNights($room, $reservation)),
+                'description' => $this->roomInvoiceDescription(
+                    $room,
+                    $reservation,
+                    $this->bookingRoomNights($room, $reservation),
+                ),
             ]);
         }
     }
 
-    private function roomInvoiceDescription(Room $room, int $nights): string
+    private function roomInvoiceDescription(Room $room, Reservation $reservation, int $nights): string
     {
+        $parts = [sprintf('Chambre %s (%s)', $room->room_number, $this->roomClassificationLabel($room))];
+
+        $occupantName = trim((string) ($room->pivot->occupant_name ?? ''));
+        if (($reservation->booking_type ?? '') === 'organization' && $occupantName !== '') {
+            $parts[] = $occupantName;
+        }
+
+        $parts[] = sprintf('%d %s', $nights, $nights > 1 ? 'nuits' : 'nuit');
+
+        return implode(' - ', $parts);
+    }
+
+    private function segmentExtraDescription(string $label, Room $room, Reservation $reservation): string
+    {
+        $nights = $this->bookingRoomNights($room, $reservation);
+
         return sprintf(
-            'Chambre %s (%s) - %d %s',
+            '%s - Chambre %s (%s) - %d %s',
+            $label,
             $room->room_number,
             $this->roomClassificationLabel($room),
             $nights,
             $nights > 1 ? 'nuits' : 'nuit',
         );
-    }
-
-    private function segmentExtraDescription(string $label, Room $room, Reservation $reservation): string
-    {
-        return $label . ' - ' . $this->roomInvoiceDescription($room, $this->bookingRoomNights($room, $reservation));
     }
 
     private function roomClassificationLabel(Room $room): string
@@ -1120,7 +1161,12 @@ class PMSController extends Controller
         );
     }
 
-    private function syncGeneratedRoomItem(Invoice $invoice, Reservation $reservation, Room $room): void
+    private function syncGeneratedRoomItem(
+        Invoice $invoice,
+        Reservation $reservation,
+        Room $room,
+        bool $allowGenericReuse = true,
+    ): void
     {
         $bookingRoomId = $room->pivot->id ?? null;
         if (! $bookingRoomId) {
@@ -1140,7 +1186,7 @@ class PMSController extends Controller
 
         $canReuseOnlyRoomLine = ($invoice->invoice_kind ?? 'master') === 'room'
             || $reservation->rooms->count() <= 1;
-        if (! $item && $canReuseOnlyRoomLine) {
+        if (! $item && $allowGenericReuse && $canReuseOnlyRoomLine) {
             $item = $this->generatedInvoiceItemQuery($invoice, 'room', null)
                 ->first();
             $item ??= InvoiceItem::withTrashed()
@@ -1160,7 +1206,7 @@ class PMSController extends Controller
         $data = [
             'invoice_id' => $invoice->id,
             'booking_room_id' => $bookingRoomId,
-            'description' => $this->roomInvoiceDescription($room, $nights),
+            'description' => $this->roomInvoiceDescription($room, $reservation, $nights),
             'type' => 'room',
             'amount_ariary' => (int) ($room->pivot->price_snapshot_ariary ?? $room->base_price_ariary),
             'quantity' => $nights,
@@ -1600,6 +1646,118 @@ class PMSController extends Controller
         return $masterInvoice;
     }
 
+    private function parseGroupReservationIds(mixed $value): Collection
+    {
+        if (!is_string($value) || trim($value) === '') {
+            return collect();
+        }
+
+        return collect(explode(',', $value))
+            ->map(fn ($item) => (int) trim($item))
+            ->filter(fn (int $item) => $item > 0)
+            ->unique()
+            ->values();
+    }
+
+    private function resolveGroupReservations(
+        Reservation $anchorReservation,
+        Collection $candidateIds,
+    ): Collection {
+        $anchorReservation->loadMissing('organization');
+        $anchorOrganizationId = $anchorReservation->organization_id;
+        $anchorCheckIn = optional($anchorReservation->check_in_date)->toDateString();
+        $anchorCheckOut = optional($anchorReservation->check_out_date)->toDateString();
+
+        if (!$anchorOrganizationId || $anchorCheckIn === null || $anchorCheckOut === null) {
+            return collect([$anchorReservation]);
+        }
+
+        $reservations = Reservation::query()
+            ->with(['rooms', 'organization', 'invoice.items', 'invoice.payments', 'invoices.items', 'invoices.payments'])
+            ->whereIn('id', $candidateIds->all())
+            ->get()
+            ->filter(function (Reservation $reservation) use ($anchorOrganizationId, $anchorCheckIn, $anchorCheckOut) {
+                return $reservation->organization_id === $anchorOrganizationId
+                    && optional($reservation->check_in_date)->toDateString() === $anchorCheckIn
+                    && optional($reservation->check_out_date)->toDateString() === $anchorCheckOut
+                    && ($reservation->booking_type ?? '') === 'organization'
+                    && $reservation->status !== 'annule';
+            })
+            ->sortBy(fn (Reservation $reservation) => sprintf('%06d', $reservation->id))
+            ->values();
+
+        if ($reservations->isEmpty()) {
+            return collect([$anchorReservation]);
+        }
+
+        if ($reservations->every(fn (Reservation $reservation) => $reservation->id !== $anchorReservation->id)) {
+            $reservations->prepend($anchorReservation);
+        }
+
+        return $reservations
+            ->unique('id')
+            ->values();
+    }
+
+    private function syncGroupedReservationFolio(Invoice $invoice, Collection $reservations): void
+    {
+        $invoice->loadMissing(['items', 'payments', 'reservation.rooms']);
+
+        $generatedItems = $invoice->items
+            ->whereNull('created_by_role')
+            ->whereNull('manual_override_at');
+
+        foreach ($generatedItems as $item) {
+            $item->forceDelete();
+        }
+
+        foreach ($reservations as $reservation) {
+            if (!$reservation instanceof Reservation) {
+                continue;
+            }
+
+            $reservation->loadMissing('rooms');
+            $this->seedRoomItems($invoice, $reservation, false);
+            $this->syncReservationExtrasForGroupedInvoice($invoice, $reservation);
+        }
+
+        $this->recalculateInvoice($invoice->refresh());
+    }
+
+    private function syncReservationExtrasForGroupedInvoice(Invoice $invoice, Reservation $reservation): void
+    {
+        $reservation->loadMissing('rooms');
+
+        $hasSegmentExtras = $reservation->rooms->contains(function (Room $room) {
+            return (int) ($room->pivot->segment_extra_beds ?? 0) > 0
+                || (int) ($room->pivot->segment_extra_mattresses ?? 0) > 0;
+        });
+
+        if ($hasSegmentExtras) {
+            foreach ($reservation->rooms as $room) {
+                $this->syncRoomSpecificExtras($invoice, $reservation, $room);
+            }
+            return;
+        }
+
+        $nights = $this->reservationNights($reservation);
+        $reservationTag = $reservation->booking_reference ?: ('Réservation #' . $reservation->id);
+        $this->syncGeneratedExtraItem(
+            $invoice,
+            null,
+            'Lit supplémentaire - ' . $reservationTag,
+            self::EXTRA_BED_PRICE_ARIARY,
+            (int) $reservation->extra_beds * $nights,
+        );
+        $this->syncGeneratedExtraItem(
+            $invoice,
+            null,
+            'Matelas supplémentaire - ' . $reservationTag,
+            self::EXTRA_MATTRESS_PRICE_ARIARY,
+            (int) $reservation->extra_mattresses * $nights,
+        );
+    }
+
     private function invoiceHtml(Invoice $invoice, string $documentType = 'facture', string $currencyMode = 'ariary'): string
     {
         $reservation = $invoice->reservation;
@@ -1671,7 +1829,7 @@ class PMSController extends Controller
                 $room = $roomBookById->get($item->booking_room_id);
                 if ($room instanceof Room) {
                     $nights = $this->bookingRoomNights($room, $reservation);
-                    $description = $this->roomInvoiceDescription($room, $nights);
+                    $description = $this->roomInvoiceDescription($room, $reservation, $nights);
                     if ($showSegmentDates) {
                         $segmentDateRange = $this->bookingRoomDateRange($room, $reservation);
                     }
@@ -1784,7 +1942,6 @@ class PMSController extends Controller
                             <div class='box'>
                                 <div class='box-title'>Client</div>
                                 <strong>{$guestName}</strong><br>
-                                " . ($reservation->booking_type === 'organization' ? 'Client : organisme<br>' : '') . "
                                 " . ($contactLine ? "Contact : {$contactLine}<br>" : '') . "
                                 Séjour du {$checkIn} au {$checkOut}
                             </div>

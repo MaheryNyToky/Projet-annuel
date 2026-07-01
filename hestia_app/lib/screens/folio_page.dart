@@ -28,6 +28,7 @@ class FolioPage extends StatefulWidget {
     this.pricingMode = 'fixed',
     this.initialDocumentType = 'facture',
     this.proformaOnly = false,
+    this.groupReservationIds = const [],
   });
 
   final Map<String, dynamic> reservation;
@@ -36,6 +37,7 @@ class FolioPage extends StatefulWidget {
   final String pricingMode;
   final String initialDocumentType;
   final bool proformaOnly;
+  final List<int> groupReservationIds;
 
   @override
   State<FolioPage> createState() => _FolioPageState();
@@ -51,6 +53,7 @@ class _FolioPageState extends State<FolioPage> {
   String _billingMode = 'grouped';
   int? _selectedInvoiceId;
   final Set<int> _selectedInvoiceIds = {};
+  late final List<int> _groupReservationIds;
 
   Map<String, dynamic> get _reservationData => _reservation;
 
@@ -363,6 +366,9 @@ class _FolioPageState extends State<FolioPage> {
   void initState() {
     super.initState();
     _reservation = Map<String, dynamic>.from(widget.reservation);
+    _groupReservationIds =
+        widget.groupReservationIds.where((id) => id > 0).toSet().toList()
+          ..sort();
     _documentType = widget.proformaOnly
         ? 'proforma'
         : (widget.initialDocumentType == 'proforma' ? 'proforma' : 'facture');
@@ -382,13 +388,19 @@ class _FolioPageState extends State<FolioPage> {
     }
 
     setState(() => _isLoading = true);
-    final cacheKey = 'folio_cache:$_reservationId:${invoiceId ?? "default"}';
+    final groupKey = _groupReservationIds.isEmpty
+        ? 'solo'
+        : _groupReservationIds.join('-');
+    final cacheKey =
+        'folio_cache:$_reservationId:${invoiceId ?? "default"}:$groupKey';
     try {
       final uri = Uri.parse('$baseUrl/api/reservations/$_reservationId/folio')
           .replace(
-            queryParameters: invoiceId == null
-                ? null
-                : {'invoice_id': invoiceId.toString()},
+            queryParameters: {
+              if (invoiceId != null) 'invoice_id': invoiceId.toString(),
+              if (_groupReservationIds.isNotEmpty)
+                'group_reservation_ids': _groupReservationIds.join(','),
+            },
           );
       final response = await http.get(uri).timeout(const Duration(seconds: 5));
       if (!mounted) return;
@@ -1835,21 +1847,10 @@ class _SummaryPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final status = folio['status']?.toString() ?? 'open';
     final guest = folio['guest'];
-    final bookingType =
-        (folio['booking_type'] ?? reservation['booking_type'] ?? 'individual')
-            .toString();
-    final organization = reservation['organization'];
-    final organizationName = organization is Map
-        ? (organization['name'] ?? '').toString().trim()
-        : '';
     final loyaltyCount = guest is Map ? _asInt(guest['loyalty_count']) : 0;
     final guestName = guest is Map
         ? (guest['full_name'] ?? guest['first_name'] ?? '').toString().trim()
         : '';
-    final clientName =
-        bookingType == 'organization' && organizationName.isNotEmpty
-        ? organizationName
-        : guestName;
     final hasLoyaltyInfo = guest is Map;
     final contact = _formatContact(reservation);
     final depositAmount = _asInt(folio['deposit_amount_ariary']);
@@ -1905,13 +1906,6 @@ class _SummaryPanel extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
-          ],
-          if (bookingType == 'organization' && clientName.isNotEmpty) ...[
-            Text(
-              'Client : $clientName',
-              style: const TextStyle(color: _ink, fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 8),
           ],
           if (contact.isNotEmpty) ...[
             Text(

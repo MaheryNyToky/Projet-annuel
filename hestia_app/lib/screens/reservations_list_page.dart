@@ -1251,6 +1251,7 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
   late DateTime _selectedDate;
   String _statusFilter = 'pending';
   String _searchQuery = '';
+  final Set<int> _groupSelectionIds = {};
 
   @override
   void initState() {
@@ -1281,6 +1282,211 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
     if (value is int) return value;
     if (value is num) return value.toInt();
     return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  bool _isOrganizationReservation(Map<String, dynamic> reservation) {
+    return (reservation['booking_type'] ?? '').toString() == 'organization';
+  }
+
+  Map<String, dynamic>? _reservationById(int id) {
+    for (final item in _reservations) {
+      if (item is Map && _asInt(item['id']) == id) {
+        return Map<String, dynamic>.from(item);
+      }
+    }
+    return null;
+  }
+
+  String _reservationGroupKey(Map<String, dynamic> reservation) {
+    final organization = reservation['organization'];
+    final organizationId = _asInt(
+      organization is Map ? organization['id'] : reservation['organization_id'],
+    );
+    return [
+      organizationId,
+      (reservation['check_in'] ?? '').toString(),
+      (reservation['check_out'] ?? '').toString(),
+    ].join('|');
+  }
+
+  List<Map<String, dynamic>> _groupReservationsFor(Map<String, dynamic> base) {
+    final baseOrganizationId = _asInt(
+      (base['organization'] is Map)
+          ? (base['organization'] as Map)['id']
+          : base['organization_id'],
+    );
+    final baseCheckIn = (base['check_in'] ?? '').toString();
+    final baseCheckOut = (base['check_out'] ?? '').toString();
+
+    return _reservations
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .where(
+          (item) =>
+              _isOrganizationReservation(item) &&
+              _asInt(
+                    (item['organization'] is Map)
+                        ? (item['organization'] as Map)['id']
+                        : item['organization_id'],
+                  ) ==
+                  baseOrganizationId &&
+              (item['check_in'] ?? '').toString() == baseCheckIn &&
+              (item['check_out'] ?? '').toString() == baseCheckOut,
+        )
+        .toList()
+      ..sort((a, b) => _asInt(a['id']).compareTo(_asInt(b['id'])));
+  }
+
+  Future<void> _openGroupedFolioFromSelection() async {
+    if (_groupSelectionIds.isEmpty) return;
+
+    final selected = _groupSelectionIds
+        .map(_reservationById)
+        .whereType<Map<String, dynamic>>()
+        .toList();
+    if (selected.isEmpty) return;
+
+    final base = selected.first;
+    final baseKey = _reservationGroupKey(base);
+    if (selected.any(
+      (reservation) => _reservationGroupKey(reservation) != baseKey,
+    )) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Sélectionne seulement des réservations du même séjour.',
+          ),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    final groupedReservations = _groupReservationsFor(base);
+    if (groupedReservations.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Aucune réservation d’organisme compatible trouvée.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    final orgName = (base['organization'] is Map)
+        ? ((base['organization'] as Map)['name'] ?? '').toString()
+        : '';
+    if (orgName.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Cette réservation n’est pas liée à un organisme.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    final selection = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) {
+        String pricingMode = 'fixed';
+        return AlertDialog(
+          title: const Text('Facture groupée'),
+          content: StatefulBuilder(
+            builder: (context, setDialogState) => Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ToggleButtons(
+                  isSelected: [pricingMode == 'fixed', pricingMode == 'ai'],
+                  onPressed: (index) => setDialogState(() {
+                    pricingMode = index == 0 ? 'fixed' : 'ai';
+                  }),
+                  borderRadius: BorderRadius.circular(12),
+                  children: const [
+                    Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      child: Text('Tarif Fixe'),
+                    ),
+                    Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      child: Text('Tarif IA'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '${groupedReservations.length} réservation(s) sélectionnée(s) pour $orgName.',
+                  style: const TextStyle(color: _muted, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Annuler'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context, {'pricing_mode': pricingMode});
+              },
+              child: const Text('Continuer'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (selection == null || !mounted) return;
+
+    final anchor = groupedReservations.first;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => FolioPage(
+          reservation: anchor,
+          userName: widget.userName,
+          role: widget.role,
+          pricingMode: selection['pricing_mode']?.toString() ?? 'fixed',
+          groupReservationIds: groupedReservations
+              .map((reservation) => _asInt(reservation['id']))
+              .toList(),
+        ),
+      ),
+    );
+    _fetchReservations();
+  }
+
+  String? _organizationOccupantSummary(Map<String, dynamic> reservation) {
+    if ((reservation['booking_type'] ?? '').toString() != 'organization') {
+      return null;
+    }
+
+    final details = reservation['room_details'];
+    if (details is! Iterable) return null;
+
+    final occupants = <String>[];
+    for (final rawRoom in details.whereType<Map>()) {
+      final room = Map<String, dynamic>.from(rawRoom);
+      final occupantName = (room['occupant_name'] ?? '').toString().trim();
+      if (occupantName.isEmpty) continue;
+
+      final roomNumber = (room['room_number'] ?? '').toString().trim();
+      occupants.add(
+        roomNumber.isNotEmpty
+            ? 'Chambre $roomNumber: $occupantName'
+            : occupantName,
+      );
+    }
+
+    if (occupants.isEmpty) return null;
+    return 'Occupant${occupants.length > 1 ? 's' : ''} : ${occupants.join(' | ')}';
   }
 
   Future<void> _fetchReservations() async {
@@ -1933,6 +2139,26 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
             },
             icon: const Icon(Icons.refresh),
           ),
+          if (_groupSelectionIds.isNotEmpty)
+            TextButton.icon(
+              onPressed: _openGroupedFolioFromSelection,
+              icon: const Icon(Icons.groups_outlined, color: _primaryDark),
+              label: Text(
+                'Grouper (${_groupSelectionIds.length})',
+                style: const TextStyle(
+                  color: _primaryDark,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          if (_groupSelectionIds.isNotEmpty)
+            IconButton(
+              tooltip: 'Effacer la sélection',
+              onPressed: () {
+                setState(() => _groupSelectionIds.clear());
+              },
+              icon: const Icon(Icons.clear_all_outlined),
+            ),
           TextButton(
             onPressed: () {
               setState(() {
@@ -2046,8 +2272,22 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                       final isPostCheckIn =
                           status == 'arrive' || status == 'check_out_manuel';
                       final showStatusControls = _shouldShowStatusControls(res);
+                      final isOrganization = _isOrganizationReservation(res);
+                      final isGroupSelected = _groupSelectionIds.contains(
+                        _asInt(res['id']),
+                      );
                       final paymentStatus =
                           (res['payment_status'] ?? 'unbilled').toString();
+                      final invoiceStatus = (res['invoice_status'] ?? '')
+                          .toString()
+                          .trim();
+                      final invoiceNumber = (res['invoice_number'] ?? '')
+                          .toString()
+                          .trim();
+                      final hasInvoice =
+                          invoiceStatus.isNotEmpty && invoiceStatus != 'none' ||
+                          invoiceNumber.isNotEmpty && invoiceNumber != 'N/A';
+                      final occupantSummary = _organizationOccupantSummary(res);
                       return Card(
                         margin: const EdgeInsets.symmetric(
                           horizontal: 16,
@@ -2082,6 +2322,21 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                                             : Icons.savings_outlined,
                                       ),
                                       color: _primaryDark,
+                                    ),
+                                  if (isOrganization)
+                                    Checkbox(
+                                      value: isGroupSelected,
+                                      onChanged: (value) {
+                                        setState(() {
+                                          final id = _asInt(res['id']);
+                                          if (value == true) {
+                                            _groupSelectionIds.add(id);
+                                          } else {
+                                            _groupSelectionIds.remove(id);
+                                          }
+                                        });
+                                      },
+                                      visualDensity: VisualDensity.compact,
                                     ),
                                   if (status == 'en_attente')
                                     IconButton(
@@ -2243,6 +2498,15 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                                 ),
                               ),
                               Text('Chambres : ${res['rooms']}'),
+                              if (occupantSummary != null)
+                                Text(
+                                  occupantSummary,
+                                  style: const TextStyle(
+                                    color: _muted,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
                               if (_asInt(res['extra_beds']) > 0 ||
                                   _asInt(res['extra_mattresses']) > 0)
                                 Padding(
@@ -2257,6 +2521,7 @@ class _ReservationsListPageState extends State<ReservationsListPage> {
                               const SizedBox(height: 4),
                               _ReservationPaymentBadge(
                                 paymentStatus: paymentStatus,
+                                hasInvoice: hasInvoice,
                                 processedBy:
                                     [
                                           res['latest_payment_processed_by']
@@ -2778,10 +3043,12 @@ class _StatusChoiceChip extends StatelessWidget {
 class _ReservationPaymentBadge extends StatelessWidget {
   const _ReservationPaymentBadge({
     required this.paymentStatus,
+    required this.hasInvoice,
     required this.processedBy,
   });
 
   final String paymentStatus;
+  final bool hasInvoice;
   final String? processedBy;
 
   @override
@@ -2789,14 +3056,16 @@ class _ReservationPaymentBadge extends StatelessWidget {
     final label = switch (paymentStatus) {
       'paid' => 'Payé',
       'partial' => 'Partiellement payé',
-      'unpaid' => 'Non payé',
-      _ => 'Non facturé',
+      'unpaid' => hasInvoice ? 'Non payé' : 'Non facturé',
+      'unbilled' => hasInvoice ? 'Non payé' : 'Non facturé',
+      _ => hasInvoice ? 'Non payé' : 'Non facturé',
     };
     final color = switch (paymentStatus) {
       'paid' => const Color(0xFF047857),
       'partial' => const Color(0xFFD97706),
-      'unpaid' => const Color(0xFFBE123C),
-      _ => _muted,
+      'unpaid' => hasInvoice ? const Color(0xFFBE123C) : _muted,
+      'unbilled' => hasInvoice ? const Color(0xFFBE123C) : _muted,
+      _ => hasInvoice ? const Color(0xFFBE123C) : _muted,
     };
 
     return Align(

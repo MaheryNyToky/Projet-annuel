@@ -672,6 +672,49 @@ class ReservationEndToEndFlowTest extends TestCase
         $this->assertContains('Matelas supplémentaire - Chambre 01 (double standard) - 1 nuit', $pdfDescriptions);
     }
 
+    public function test_grouped_organization_folio_includes_all_selected_reservations(): void
+    {
+        $user = $this->createReceptionUser();
+        $room1 = $this->createRoom('014');
+        $room2 = $this->createRoom('015');
+        $room3 = $this->createRoom('016');
+
+        $reservation1 = $this->createGroupedOrganizationReservation(
+            $user,
+            'Organisme Groupe A',
+            $room1,
+            'Occupant 1',
+        );
+        $reservation2 = $this->createGroupedOrganizationReservation(
+            $user,
+            'Organisme Groupe A',
+            $room2,
+            'Occupant 2',
+        );
+        $reservation3 = $this->createGroupedOrganizationReservation(
+            $user,
+            'Organisme Groupe A',
+            $room3,
+            'Occupant 3',
+        );
+
+        $response = $this->getJson(
+            "/api/reservations/{$reservation1->id}/folio?group_reservation_ids={$reservation1->id},{$reservation2->id},{$reservation3->id}",
+        )->assertOk();
+
+        $roomLines = collect($response->json('items'))
+            ->pluck('description')
+            ->filter(fn ($description) => str_starts_with((string) $description, 'Chambre '))
+            ->values()
+            ->all();
+
+        $this->assertCount(3, $roomLines);
+        $this->assertContains('Chambre 014 (double standard) - Occupant 1 - 1 nuit', $roomLines);
+        $this->assertContains('Chambre 015 (double standard) - Occupant 2 - 1 nuit', $roomLines);
+        $this->assertContains('Chambre 016 (double standard) - Occupant 3 - 1 nuit', $roomLines);
+        $this->assertSame(330000, (int) $response->json('total_amount_ariary'));
+    }
+
     public function test_individual_invoice_uses_room_labels_without_guest_names(): void
     {
         $user = $this->createReceptionUser();
@@ -880,5 +923,69 @@ class ReservationEndToEndFlowTest extends TestCase
             'code' => 201,
             'body' => $response,
         ];
+    }
+
+    private function createGroupedOrganizationReservation(
+        User $user,
+        string $organizationName,
+        Room $room,
+        string $occupantName,
+    ): Reservation {
+        $this->createReservation([
+            'client_name' => $organizationName,
+            'customer_phone' => '0349000100',
+            'customer_email' => 'contact@group.example',
+            'organization_name' => $organizationName,
+            'organization_phone' => '020900010',
+            'organization_contact_name' => 'Contact Organisme',
+            'organization_contact_phone' => '0349000100',
+            'organization_contact_email' => 'contact@group.example',
+            'organization_email' => 'siege@group.example',
+            'organization_billing_address' => 'Adresse Organisme',
+            'organization_nif' => 'NIF-ORG-GROUP-001',
+            'organization_stat' => 'STAT-ORG-GROUP-001',
+            'check_in' => '2026-08-01',
+            'check_out' => '2026-08-02',
+            'room_ids' => [$room->id],
+            'room_prices' => [
+                ['id' => $room->id, 'price' => 110000],
+            ],
+            'source' => 'Appel',
+            'receptionist_name' => $user->name,
+        ]);
+
+        $reservation = Reservation::query()
+            ->where('client_name', $organizationName)
+            ->where('check_in_date', '2026-08-01')
+            ->whereHas('rooms', fn ($query) => $query->where('room_number', $room->room_number))
+            ->latest('id')
+            ->firstOrFail();
+
+        $this->postJson("/api/reservations/{$reservation->id}/checkin", [
+            'full_name' => $organizationName,
+            'customer_phone' => '0349000100',
+            'phone_number' => '0349000100',
+            'date_of_birth' => '1988-08-08',
+            'sex' => 'Homme',
+            'id_type' => 'CIN',
+            'id_number' => 'CIN-GROUP-' . $room->room_number,
+            'id_document_number' => 'CIN-GROUP-' . $room->room_number,
+            'room_checkins' => [
+                [
+                    'room_id' => $room->id,
+                    'occupant_name' => $occupantName,
+                    'occupant_phone' => '0349000101',
+                    'occupant_email' => 'occ@group.example',
+                    'occupant_date_of_birth' => '1991-01-01',
+                    'occupant_sex' => 'Homme',
+                    'occupant_id_type' => 'CIN',
+                    'occupant_id_number' => 'CIN-OCC-' . $room->room_number,
+                ],
+            ],
+            'checked_in_by_name' => $user->name,
+            'checked_in_by_role' => $user->role,
+        ])->assertOk();
+
+        return $reservation;
     }
 }
